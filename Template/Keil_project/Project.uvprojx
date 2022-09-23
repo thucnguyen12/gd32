@@ -571,6 +571,26 @@
           </Files>
         </Group>
         <Group>
+          <GroupName>min</GroupName>
+          <Files>
+            <File>
+              <FileName>min.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\min_protocol\min.c</FilePath>
+            </File>
+            <File>
+              <FileName>min.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\min_protocol\min.h</FilePath>
+            </File>
+            <File>
+              <FileName>min_id.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\min_protocol\min_id.h</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
           <GroupName>::CMSIS</GroupName>
         </Group>
       </Groups>
