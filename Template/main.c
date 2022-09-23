@@ -150,15 +150,19 @@ uint32_t sys_get_ms(void)
 }
 
 //handle min data after receive
+char spi_data_buffer[256];
 void min_rx_callback(void *min_context, min_msg_t *frame)
 {
     switch (frame->id)
     {
-    case MIN_ID_RECIEVE_SPI_FROM_GD32:
+    case MIN_ID_PING_ESP_ALIVE:
         /* code */
         check_ping_esp_s = true;
         break;
+    case MIN_ID_SEND_SPI_FROM_ESP32:    
+        memcpy(spi_data_buffer, frame->payload,frame->len);
     
+        break;
     default:
         break;
     }
@@ -256,7 +260,7 @@ int main(void)
         
         if(SET == gd_eval_key_state_get(KEY_WAKEUP)){
             gd_eval_led_on(LED2);
-            delay_1ms(500);
+            delay_1ms(500); 
             gd_eval_led_off(LED2);
             gd_eval_led_toggle(LED3);
         }
