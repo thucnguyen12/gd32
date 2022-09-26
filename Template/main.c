@@ -42,6 +42,8 @@ OF SUCH DAMAGE.
 #include "lwrb/include/lwrb/lwrb.h"
 #include "min_protocol/min.h"
 #include "min_protocol/min_id.h"
+#include "app_mqtt_protocol/include/app_mqtt.h"
+#include "flash.h"
 
 #define ARRAYSIZE 128
 
@@ -66,24 +68,6 @@ static const min_msg_t ping_min_msg = {
 };
 
 bool check_ping_esp_s = false;
-
-void led_spark(void)
-{
-    static __IO uint32_t timingdelaylocal = 0U;
-
-    if(timingdelaylocal){
-
-        if(timingdelaylocal < 500U){
-            gd_eval_led_on(LED1);
-        }else{
-            gd_eval_led_off(LED1);
-        }
-
-        timingdelaylocal--;
-    }else{
-        timingdelaylocal = 1000U;
-    }
-}
 
 // spi var
 volatile uint32_t send_n = 0, receive_n = 0;
@@ -213,40 +197,61 @@ int main(void)
     /* configure systick */
     systick_config();
     /* initilize the LEDs, USART and key */
-    gd_eval_led_init(LED1); 
-    gd_eval_led_init(LED2); 
-    gd_eval_led_init(LED3);
-    gd_eval_com_init(EVAL_COM);
-    gd_eval_key_init(KEY_WAKEUP, KEY_MODE_GPIO);
+//    gd_eval_led_init(LED1); 
+//    gd_eval_led_init(LED2); 
+//    gd_eval_led_init(LED3);
+//    gd_eval_com_init(EVAL_COM);
+//    gd_eval_key_init(KEY_WAKEUP, KEY_MODE_GPIO);
     
     //spi configuration
     spi_config ();
     spi_enable(SPI0);
     
+    if(RESET != rcu_flag_get(RCU_FLAG_WWDGTRST)){
+    /* WWDGTRST flag set */
+    gd_eval_led_on(LED1);
+    rcu_all_reset_flag_clear();
+//    while(1);
+    }
     /* print out the clock frequency of system, AHB, APB1 and APB2 */
     printf("\r\nCK_SYS is %d", rcu_clock_freq_get(CK_SYS));
     printf("\r\nCK_AHB is %d", rcu_clock_freq_get(CK_AHB));
     printf("\r\nCK_APB1 is %d", rcu_clock_freq_get(CK_APB1));
     printf("\r\nCK_APB2 is %d", rcu_clock_freq_get(CK_APB2));
-
+    
+    
     static uint32_t now;
     static uint32_t last_time = 0;
     uint8_t databuff[128];
     size_t btr_m;
     min_msg_t min_data_buff;
+    
+    /* enable WWDGT clock */
+    rcu_periph_clock_enable(RCU_WWDGT);
+    /*
+     *  set WWDGT clock = (PCLK1 (72MHz)/4096)/8 = 2197Hz (~455 us)
+     *  set counter value to 127
+     *  set window value to 80
+     *  refresh window is: ~455 * (127-80)= 21.3ms < refresh window < ~455 * (127-63) =29.1ms.
+     */
+    wwdgt_config(127,80,WWDGT_CFG_PSC_DIV8);
+    wwdgt_enable();
+    
     while(1){
-        
+        /* update WWDGT counter */
+        wwdgt_counter_update(127);
         now = sys_get_ms();
         if (check_ping_esp_s)
         {
             check_ping_esp_s = false;
         }
-        if (((now - last_time) > 10000) && (!check_ping_esp_s))
+        if (((now - last_time) > 5000) && (!check_ping_esp_s))
         {
             // reset esp32
             gpio_bit_reset(GPIO_ESP_EN_PORT, GPIO_ESP_EN_PIN);
             delay_1ms (50000);
             gpio_bit_set(GPIO_ESP_EN_PORT, GPIO_ESP_EN_PIN);
+            continue; //restart loop
         }
         //feed data to min progress
         lwrb_read (&uart_rb, databuff, btr_m);
@@ -257,17 +262,8 @@ int main(void)
             send_min_data (&min_data_buff);
             memset (spi0_receive_array,'\0' ,ARRAYSIZE);
         }
-        
-        if(SET == gd_eval_key_state_get(KEY_WAKEUP)){
-            gd_eval_led_on(LED2);
-            delay_1ms(500); 
-            gd_eval_led_off(LED2);
-            gd_eval_led_toggle(LED3);
-        }
     }
 }
-
-
 
 void uart0_handler(void)
 {
