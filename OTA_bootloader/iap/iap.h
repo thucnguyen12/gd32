@@ -4,7 +4,7 @@
 #include "gd32e23x.h"
 #include "systick.h"
 //#include "usart.h"
-#include "flash.h"
+#include "flash/flash.h"
 
 
 //0x8000000~0x8001FFF is reserved for bootloader.
@@ -33,7 +33,7 @@ void Update_Init(void);
 void Reset_MCU(void);					
 
 extern uint8_t Update_STA;
-extern uint8_t   USARTx_RX_BUF[DATA_SIZE];
+//extern uint8_t   USARTx_RX_BUF[DATA_SIZE];
 extern uint16_t USARTx_RX_STA;
 
 

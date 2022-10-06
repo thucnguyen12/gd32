@@ -116,6 +116,17 @@ void USART1_IRQHandler(void)
 
 void SPI0_IRQHandler(void)
 {
+    if(spi_i2s_interrupt_flag_get(SPI0, SPI_I2S_INT_FLAG_TBE) != RESET) {
+        /* send data */
+        spi_i2s_data_transmit(SPI0, spi0_send_array[send_n++]);
+        if(ARRAYSIZE == send_n) {
+#if SPI_CRC_ENABLE
+            /* send the CRC value */
+            spi_crc_next(SPI0);
+#endif /* enable CRC function */
+            spi_i2s_interrupt_disable(SPI0, SPI_I2S_INT_TBE);
+        }
+    }
     if(spi_i2s_interrupt_flag_get(SPI1, SPI_I2S_INT_FLAG_RBNE) != RESET) {
         spi0_receive_array[receive_n++] = spi_i2s_data_receive(SPI1);
         spi_data_flag = 1;

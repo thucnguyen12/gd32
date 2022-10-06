@@ -1,2 +1,3 @@
 ﻿*.txt
 Template/Keil_project/output
+OTA_bootloader/Keil_project/output

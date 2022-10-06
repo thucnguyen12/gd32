@@ -339,7 +339,7 @@
               <MiscControls></MiscControls>
               <Define>GD32E230</Define>
               <Undefine></Undefine>
-              <IncludePath>..\..\Firmware\CMSIS;..\..\Utilities;..\;..\..\Utilities\LCD_Commom;..\..\Firmware\GD32E23x_standard_peripheral\Include;..\..\Firmware\CMSIS\GD\GD32E23x\Include</IncludePath>
+              <IncludePath>..\..\Firmware\CMSIS;..\..\Utilities;..\;..\..\Utilities\LCD_Commom;..\..\Firmware\GD32E23x_standard_peripheral\Include;..\..\Firmware\CMSIS\GD\GD32E23x\Include;..\lwrb;..\board_hw;..\min_protocol;..\app_mqtt_protocol;..\flash;..\iap</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -587,6 +587,51 @@
               <FileName>min_id.h</FileName>
               <FileType>5</FileType>
               <FilePath>..\min_protocol\min_id.h</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>mqtt_msg</GroupName>
+          <Files>
+            <File>
+              <FileName>app_mqtt.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\app_mqtt_protocol\src\app_mqtt.c</FilePath>
+            </File>
+            <File>
+              <FileName>app_mqtt.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\app_mqtt_protocol\include\app_mqtt.h</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>flash</GroupName>
+          <Files>
+            <File>
+              <FileName>flash.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\flash\flash.c</FilePath>
+            </File>
+            <File>
+              <FileName>flash.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\flash\flash.h</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>iap</GroupName>
+          <Files>
+            <File>
+              <FileName>iap.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\iap\iap.c</FilePath>
+            </File>
+            <File>
+              <FileName>iap.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\iap\iap.h</FilePath>
             </File>
           </Files>
         </Group>

@@ -4,7 +4,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
-#include "uthash.h"
+//#include "uthash.h"
 
 typedef union
 {
@@ -34,7 +34,7 @@ typedef struct
     bool inTestmode;
 } __attribute__((packed)) fire_status_t;
 
-typedef 
+typedef struct
 {
     int fire_status;
     int csq;
@@ -44,7 +44,7 @@ typedef
     bool inTestmode;
 }__attribute__((packed)) fire_safe_t;
 
-typedef 
+typedef struct
 {
     char imei[20];
     char simIMEI[20];
@@ -56,7 +56,7 @@ typedef
     char ExpHwVersion[10];
 }__attribute__((packed)) info_device_t;
 
-typedef 
+typedef struct
 {
     char topic_hr [20];
     char mqtt_add [20];
