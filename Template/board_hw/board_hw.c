@@ -88,9 +88,11 @@ void board_hw_initialize(void)
     gpio_mode_set(GPIO_LORA_EN_PORT, GPIO_MODE_OUTPUT, GPIO_PUPD_PULLUP, GPIO_LORA_EN_PIN);
     gpio_output_options_set(GPIO_LORA_EN_PORT, GPIO_OTYPE_PP, GPIO_OSPEED_50MHZ, GPIO_LORA_EN_PIN);
     
-    //protocol
+    //spi cs
     gpio_mode_set(GPIO_NRF_CS_PORT, GPIO_MODE_OUTPUT, GPIO_PUPD_PULLUP, GPIO_NRF_CS_PIN);
     gpio_output_options_set(GPIO_NRF_CS_PORT, GPIO_OTYPE_PP, GPIO_OSPEED_50MHZ, GPIO_NRF_CS_PIN);
+    
+    //zigbee
     gpio_mode_set(GPIO_ZIGBEE_CS_PORT, GPIO_MODE_OUTPUT, GPIO_PUPD_PULLUP, GPIO_ZIGBEE_CS_PIN);
     gpio_output_options_set(GPIO_ZIGBEE_CS_PORT, GPIO_OTYPE_PP, GPIO_OSPEED_50MHZ, GPIO_ZIGBEE_CS_PIN);
     
@@ -128,7 +130,7 @@ void board_hw_initialize(void)
     usart_enable(RCU_USART1);
     usart_interrupt_enable(RCU_USART1, USART_INT_RBNE);
 	// usart_interrupt_enable(USART_RS232, USART_INT_TBE);	
-	nvic_irq_enable(USART0_IRQn, 1);
+	nvic_irq_enable(USART1_IRQn, 1);
     
 }
 

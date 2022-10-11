@@ -46,16 +46,51 @@ OF SUCH DAMAGE.
 #include "flash.h"
 #include "gd32e23x_it.h"
 #include "u8g2.h"
+#include "app_debug.h"
+#include "SEGGER_RTT.h"
+#include "SEGGER_RTT_Conf.h"
 
+#define APP_GD32_SPI_TOKEN      0x6699
+
+
+#define LCD_HORIZONTAL 128
+#define LCD_VERTICAL 64
 
 #define LCD_MEASURE_X_CENTER(x) ((LCD_HORIZONTAL - x) / 2)
 #define LCD_MEASURE_Y_CENTER(x) ((LCD_VERTICAL - x) / 2)
-/*!
-    \brief      toggle the led every 500ms
-    \param[in]  none
-    \param[out] none
-    \retval     none
-*/
+
+#define APP_SPI_PING_MSG    0x01
+#define APP_SPI_BEACON_MSG  0x02
+#define APP_SPI_KEY_CONBFIG 0x03
+
+typedef struct __attribute((packed))
+{
+    uint8_t netkey[16];
+    uint8_t appkey[16];
+} app_provision_key_t;
+
+typedef union
+{
+     struct __attribute((packed))
+     {
+         uint16_t token;
+         uint8_t msg_id;
+         uint8_t msg_length;
+         uint8_t payload[251];
+     }format;
+     uint8_t value[255];
+}nrf52_format_packet_t;
+
+typedef struct __attribute((packed))
+{
+  uint32_t alarm_value;
+  uint16_t sensor_count;
+  uint8_t gateway_mac[6];
+  app_provision_key_t mesh_key;
+  uint8_t in_pair_mode;
+}app_beacon_ping_msg_t;
+
+
 
 lwrb_t uart_rb;
 uint8_t uart_buffer[1024];
@@ -66,6 +101,13 @@ min_context_t m_min_context;
 min_frame_cfg_t m_min_setting;
 
 uint8_t spi_header[2];
+uint8_t spi_data_send_ping[256];
+uint8_t spi_data_send[256];
+uint8_t spi_data_recieve[256];
+bool ready_to_send = false;
+
+uint8_t min_data_send [256];
+
 
 static const min_msg_t ping_min_msg = {
     .id = MIN_ID_PING_ESP_ALIVE,
@@ -74,7 +116,7 @@ static const min_msg_t ping_min_msg = {
 };
 
 u8g2_t m_u8g2;
-
+static void delay_ns(uint32_t ns);
 uint8_t u8g2_gpio_8080_update_and_delay(U8X8_UNUSED u8x8_t *u8x8,
 										U8X8_UNUSED uint8_t msg,
 										U8X8_UNUSED uint8_t arg_int,
@@ -96,6 +138,7 @@ uint8_t spi_data_flag = 0;
 */
 void spi_config(void)
 {
+    gpio_bit_set (GPIO_NRF_CS_PORT, GPIO_NRF_CS_PIN);
     spi_parameter_struct spi_init_struct;
 
     /* deinitilize SPI and the parameters */
@@ -166,10 +209,18 @@ void min_rx_callback(void *min_context, min_msg_t *frame)
     case MIN_ID_PING_ESP_ALIVE:
         /* code */
         check_ping_esp_s = true;
+        min_msg_t  min_ping_response;
+        DEBUG_INFO ("PING OK");
+        min_ping_response.id = MIN_ID_PING_RESPONSE;
+        min_ping_response.payload = NULL;
+        min_ping_response.len = 0;
+        min_send_frame (&m_min_context,&min_ping_response);
+        
         break;
     case MIN_ID_SEND_SPI_FROM_ESP32:    
-        memcpy(spi_data_buffer, frame->payload,frame->len);
-        spi_send_data (spi_data_buffer, strlen ((char*)spi_data_buffer));
+        memcpy(spi_data_send, frame->payload,frame->len);
+        spi_send_data (spi_data_send, strlen ((char*)spi_data_send));
+        ready_to_send = true;
         break;
     case MIN_ID_SEND_HEARTBEAT_MSG:
             
@@ -244,6 +295,92 @@ void lcd_display_content_at_pos(const char *msg, u8g2_uint_t x, u8g2_uint_t y)
 	u8g2_SendBuffer(&m_u8g2);
 }
 
+void SPI_transmit_recieve_msg (uint32_t target_port, uint32_t target_pin,uint8_t * data_send, uint32_t size, uint8_t* data_receive)
+{
+    gpio_bit_reset (target_port, target_pin);
+    
+    while(spi_i2s_interrupt_flag_get(SPI1, SPI_I2S_INT_FLAG_RBNE) != RESET) {
+        *(data_receive++) = spi_i2s_data_receive(SPI0);
+    }
+    gpio_bit_set (target_port, target_pin);
+}
+
+
+void SPI_transmit_recieve (uint32_t target_port, uint32_t target_pin, uint8_t * data_send, uint32_t size, uint8_t* data_receive)
+{
+    gpio_bit_reset (target_port, target_pin);
+    while(RESET == spi_i2s_flag_get(SPI0, SPI_FLAG_TBE)) {
+    }
+    for (uint8_t i = 0; i < size; i++)
+    {
+        spi_i2s_data_transmit(SPI0, *(data_send++));
+    }
+    while(spi_i2s_interrupt_flag_get(SPI1, SPI_I2S_INT_FLAG_RBNE) != RESET) {
+        *(data_receive++) = spi_i2s_data_receive(SPI0);
+    }
+    gpio_bit_set (target_port, target_pin);
+}
+
+uint32_t rtt_tx(const void *buffer, uint32_t size)
+{
+    return SEGGER_RTT_Write(0, buffer, size);
+}
+
+void request_ping_message(uint8_t* p_out)
+{
+    nrf52_format_packet_t nrf52_local_packet;
+    nrf52_local_packet.format.token = APP_GD32_SPI_TOKEN;
+    nrf52_local_packet.format.msg_id = APP_SPI_PING_MSG;
+    nrf52_local_packet.format.msg_length = 0;
+    memset(&nrf52_local_packet.format.payload, 0, sizeof(nrf52_local_packet.format.payload));
+    /*Write*/
+    /*nrF52 CS Pin*/
+    gpio_bit_reset(GPIO_NRF_CS_PORT, GPIO_NRF_CS_PIN);
+    DEBUG_INFO ("send test spi msg");
+    for(uint16_t i = 0; i < sizeof(nrf52_format_packet_t); i++)
+    {
+        //nrf52_local_packet.value[i] = m_write(nrf52_local_packet.value[i]);
+        while(RESET == spi_i2s_flag_get(SPI0, SPI_FLAG_TBE)) {
+        }
+            spi_i2s_data_transmit(SPI0, nrf52_local_packet.value[i]);
+        while(spi_i2s_interrupt_flag_get(SPI1, SPI_I2S_INT_FLAG_RBNE) != RESET) {
+            nrf52_local_packet.value[i] = spi_i2s_data_receive(SPI0);
+        }
+    }
+    
+    if(nrf52_local_packet.format.token == APP_GD32_SPI_TOKEN && nrf52_local_packet.format.msg_id == APP_SPI_PING_MSG)
+    {
+            DEBUG_INFO("Found Ping response\r\n");
+            uint8_t ping_msg_length = nrf52_local_packet.format.msg_length;
+            app_beacon_ping_msg_t *p_ping_msg = (app_beacon_ping_msg_t*)&nrf52_local_packet.format.payload;
+            /*<Only for Debug>*/
+            DEBUG_INFO("Alarm value:%0x08x\r\nTotal Sensor count:%u\r\nPair mode:%d\r\nGateway Mac:", p_ping_msg->alarm_value, p_ping_msg->sensor_count, p_ping_msg->in_pair_mode);
+            for(uint8_t  i = 0; i < 6; i++)
+            {
+                DEBUG_RAW("%02x-", p_ping_msg->gateway_mac[i]);
+            }
+            DEBUG_RAW("\r\nAppKey");
+            for(uint8_t  i = 0; i < 16; i++)
+            {
+                DEBUG_RAW("%02x-", p_ping_msg->mesh_key.appkey[i]);
+            }
+            DEBUG_RAW("\r\nnetKey");
+            for(uint8_t  i = 0; i < 16; i++)
+            {
+                DEBUG_RAW("%02x-", p_ping_msg->mesh_key.netkey[i]);
+            }
+            DEBUG_RAW("\r\n");
+    }
+    else
+    {
+            DEBUG_ERROR("Wrong ping response format\r\n");
+    }
+    memcpy (p_out, &nrf52_local_packet, 256);
+    // nRF52 CS PIN
+    gpio_bit_set(GPIO_NRF_CS_PORT, GPIO_NRF_CS_PIN);
+}
+
+
 /*!
     \brief      main function
     \param[in]  none
@@ -279,7 +416,10 @@ int main(void)
     nvic_irq_enable (SPI0_IRQn, 1);
     spi_config ();
     spi_enable (SPI0);
-    
+    // app debug
+    app_debug_init(sys_get_ms,NULL);
+    app_debug_register_callback_print(rtt_tx);
+    DEBUG_INFO ("APP DEBUG OK");
     if(RESET != rcu_flag_get(RCU_FLAG_WWDGTRST)){
     /* WWDGTRST flag set */
     gd_eval_led_on(LED1);
@@ -335,9 +475,10 @@ int main(void)
         {
             check_ping_esp_s = false;
         }
-        if (((now - last_time) > 5000) && (!check_ping_esp_s))
+        if (((now - last_time) > 500000) && (!check_ping_esp_s))
         {
             // reset esp32
+            DEBUG_INFO ("TIME OUT RESET ESP32");
             gpio_bit_reset(GPIO_ESP_EN_PORT, GPIO_ESP_EN_PIN);
             delay_1ms (5000);
             gpio_bit_set(GPIO_ESP_EN_PORT, GPIO_ESP_EN_PIN);
@@ -345,23 +486,63 @@ int main(void)
             //restart loop
         }
         //feed data to min progress
+
+        uint16_t uart_data_leng = lwrb_read (&uart_rb, databuff, btr_m);
+        if (uart_data_leng)
+        {
+            min_rx_feed (&m_min_context, databuff, uart_data_leng);
+        }
         
-        lwrb_read (&uart_rb, databuff, btr_m);
-        min_rx_feed (&m_min_context, databuff, btr_m);
         //transmit data to ask for spi data
         //spi_send_data ((char *)"need you send data", strlen ("need you send data"));
-        //example header
-        spi_header[0] = 0x01;
-        spi_header[1] = 0xFF;
-        spi_send_data (spi_header, 2);
-        //wait till there no data in register
-                                                                                                                    
-        if (spi_data_flag)//check whether there are spi data
+        //ping piority
+        if (now - last_time > 1000)
         {
-            build_min_tx_data_from_spi(&min_data_buff, spi0_receive_array, ARRAYSIZE);
-            send_min_data (&min_data_buff);
-            memset (spi0_receive_array,'\0' ,ARRAYSIZE);
-        } 
+            /*
+            memset (spi_data_send_ping,'\0',sizeof(spi_data_send_ping));
+            char* leng_buff_str;
+            memcpy (leng_buff_str, spi_data_send_ping, sizeof(spi_data_send_ping));
+            spi_data_send_ping [0] = 0x66;
+            spi_data_send_ping [1] = 0x99;
+            spi_data_send_ping [2] = APP_SPI_PING_MSG;
+            spi_data_send_ping [3] = strlen(leng_buff_str);
+            
+            //spi_send_data (spi_header, 2);
+            SPI_transmit_recieve(GPIO_NRF_CS_PORT, GPIO_NRF_CS_PIN, spi_data_send_ping, sizeof(spi_data_send_ping), spi_data_recieve);
+            uint8_t length;
+            // need parse spi data
+            {
+                
+                if (spi_data_recieve[2] == APP_SPI_PING_MSG)
+                {
+                    length = spi_data_recieve[3];
+                    uint8_t* payload = &(spi_data_recieve[3]);
+                    //can copy  ra de bao toan du lieu
+                    memcpy (min_data_send, spi_data_recieve, length);
+                }
+            }
+            //after recieve we need forward data to esp32
+            build_min_tx_data_from_spi (&min_data_buff, spi_data_recieve, length);
+            send_min_data(&min_data_buff);
+            */
+            uint8_t test[256];
+            request_ping_message (test);
+            DEBUG_INFO ("DATA RECIEVE : %s", test);
+        }
+        //wait till there no data in register
+        if (ready_to_send)
+        {
+            // recieve data 
+            DEBUG_INFO ("DATA GET FROM ESP32 NEED TO SEND");
+            SPI_transmit_recieve(GPIO_NRF_CS_PORT, GPIO_NRF_CS_PIN, spi_data_send, 128, spi_data_recieve);
+            ready_to_send = false;
+        }
+        
+        //if need send lora data
+        {
+            SPI_transmit_recieve (GPIO_LORA_CS_PORT, GPIO_LORA_CS_PIN, spi_data_send, 128, spi_data_recieve);
+        }
+        last_time = now;
     }
 }
 

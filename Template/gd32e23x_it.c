@@ -93,7 +93,7 @@ void PendSV_Handler(void)
 */
 void SysTick_Handler(void)
 {
-    led_spark();
+    //led_spark();
     delay_decrement();
 }
 
