@@ -91,20 +91,21 @@ void PendSV_Handler(void)
     \param[out] none
     \retval     none
 */
+extern volatile uint32_t sys_counter;
 void SysTick_Handler(void)
 {
     //led_spark();
+    sys_counter++;
     delay_decrement();
 }
 
 
 void USART0_IRQHandler(void)
 {
-   if(SET == usart_interrupt_flag_get(EVAL_COM, USART_INT_FLAG_RBNE))
+
+    if(SET == usart_interrupt_flag_get(USART0, USART_INT_FLAG_RBNE))
    {
-       usart_flag_clear(EVAL_COM, USART_FLAG_RBNE);
-//       counter0 = 0x01;
-       //handler
+       usart_flag_clear(USART0, USART_FLAG_RBNE);
        uart0_handler();
    }
 }
@@ -112,29 +113,59 @@ void USART0_IRQHandler(void)
 void USART1_IRQHandler(void)
 {
     // rs232 handle
+   if(SET == usart_interrupt_flag_get(USART1, USART_INT_FLAG_RBNE))
+   {
+       usart_flag_clear(USART1, USART_FLAG_RBNE);
+       uart0_handler();
+   }
+
+   if(SET == usart_interrupt_flag_get(USART1, USART_INT_FLAG_TBE))
+   {
+       usart_flag_clear(USART1, USART_FLAG_TBE);
+   }
+
+   if(SET == usart_interrupt_flag_get(USART1, USART_INT_FLAG_IDLE))
+   {
+       usart_flag_clear(USART1, USART_FLAG_RBNE);
+   }
+   if(SET == usart_interrupt_flag_get(USART1, USART_INT_FLAG_ERR_NERR))
+   {
+       usart_flag_clear(USART1, USART_FLAG_NERR); 
+   }
+   if(SET == usart_interrupt_flag_get(USART1, USART_INT_FLAG_ERR_ORERR))
+   {
+       usart_flag_clear(USART1, USART_FLAG_FERR);
+   }
+   if(SET == usart_interrupt_flag_get(USART1, USART_INT_FLAG_ERR_FERR))
+   {
+       usart_flag_clear(USART1, USART_FLAG_PERR);
+   }
+   
 }
 
 void SPI0_IRQHandler(void)
 {
-    if(spi_i2s_interrupt_flag_get(SPI0, SPI_I2S_INT_FLAG_TBE) != RESET) {
+    
+//    if(spi_i2s_interrupt_flag_get(SPI0, SPI_I2S_INT_FLAG_TBE) != RESET) {
         /* send data */
-        spi_i2s_data_transmit(SPI0, spi0_send_array[send_n++]);
-        if(ARRAYSIZE == send_n) {
+//        spi_i2s_data_transmit(SPI0, spi0_send_array[send_n++]);
+//        if(ARRAYSIZE == send_n) {
 #if SPI_CRC_ENABLE
             /* send the CRC value */
             spi_crc_next(SPI0);
 #endif /* enable CRC function */
-            spi_i2s_interrupt_disable(SPI0, SPI_I2S_INT_TBE);
-        }
-    }
-    if(spi_i2s_interrupt_flag_get(SPI1, SPI_I2S_INT_FLAG_RBNE) != RESET) {
-        spi0_receive_array[receive_n++] = spi_i2s_data_receive(SPI1);
-        spi_data_flag = 1;
+//            spi_i2s_interrupt_disable(SPI0, SPI_I2S_INT_TBE);
+//        }
+//    }
+//    if(spi_i2s_interrupt_flag_get(SPI1, SPI_I2S_INT_FLAG_RBNE) != RESET) {
+//        spi0_receive_array[receive_n++] = spi_i2s_data_receive(SPI1);
+//        spi_data_flag = 1;
 #if SPI_CRC_ENABLE
         if((ARRAYSIZE - 1) == receive_n) {
             /* receive the CRC value */
             spi_crc_next(SPI1);
         }
 #endif /* enable CRC function */
-    }
+//    }
+    
 }

@@ -91,9 +91,8 @@ typedef struct __attribute((packed))
 }app_beacon_ping_msg_t;
 
 
-
 lwrb_t uart_rb;
-uint8_t uart_buffer[1024];
+uint8_t uart_buffer[512];
 uint8_t min_txbuffer[1024];
 
 uint8_t min_rx_buffer[1024];
@@ -129,6 +128,7 @@ volatile uint32_t send_n = 0, receive_n = 0;
 uint8_t spi0_send_array[ARRAYSIZE];
 uint8_t spi0_receive_array[ARRAYSIZE];
 uint8_t spi_data_flag = 0;
+volatile uint32_t sys_counter;
 
 /*!
     \brief      configure the SPI peripheral
@@ -174,7 +174,6 @@ void spi_config(void)
 #endif /* enable CRC function */
 }
 
-
 //example for transmit data
 
 void spi_send_data (uint8_t* data, uint8_t size)
@@ -197,7 +196,7 @@ int fputc(int ch, FILE *f)
 //get tick
 uint32_t sys_get_ms(void)
 {
-    return SysTick->VAL;
+    return sys_counter;
 }
 
 //handle min data after receive
@@ -210,12 +209,8 @@ void min_rx_callback(void *min_context, min_msg_t *frame)
         /* code */
         check_ping_esp_s = true;
         min_msg_t  min_ping_response;
-        DEBUG_INFO ("PING OK");
-        min_ping_response.id = MIN_ID_PING_RESPONSE;
-        min_ping_response.payload = NULL;
-        min_ping_response.len = 0;
-        min_send_frame (&m_min_context,&min_ping_response);
-        
+        DEBUG_INFO ("PING OK\r\n");
+        //DEBUG_INFO ("PAY LOAD:%s", frame->payload);        
         break;
     case MIN_ID_SEND_SPI_FROM_ESP32:    
         memcpy(spi_data_send, frame->payload,frame->len);
@@ -229,7 +224,11 @@ void min_rx_callback(void *min_context, min_msg_t *frame)
         
         break;
     case MIN_ID_SEND_KEY_CONFIG:
-        
+
+        break;
+    case MIN_ID_PING_ESP_DEAD:
+        check_ping_esp_s = false;
+        DEBUG_INFO ("PING DEAD, WILL RESET SOON\r\n");
         break;
     default:
         break;
@@ -390,21 +389,24 @@ void request_ping_message(uint8_t* p_out)
 
 int main(void)
 {
+    /* configure systick */
+    systick_config();
+    
     board_hw_initialize();
-    lwrb_init(&uart_rb, uart_buffer, 1024);
+    
+    lwrb_init(&uart_rb, uart_buffer, sizeof(uart_buffer));
     m_min_setting.get_ms = sys_get_ms;
     m_min_setting.last_rx_time = 0x00;
 	m_min_setting.rx_callback = min_rx_callback;
 	m_min_setting.timeout_not_seen_rx = 5000;
 	m_min_setting.tx_byte = min_tx_byte;
-	m_min_setting.use_timeout_method = 1;
+	m_min_setting.use_timeout_method = 0;
 
     m_min_context.callback = &m_min_setting;
 	m_min_context.rx_frame_payload_buf = min_rx_buffer;
 	min_init_context(&m_min_context);
     
-    /* configure systick */
-    systick_config();
+    
     /* initilize the LEDs, USART and key */
 //    gd_eval_led_init(LED1); 
 //    gd_eval_led_init(LED2); 
@@ -412,18 +414,32 @@ int main(void)
 //    gd_eval_com_init(EVAL_COM);
 //    gd_eval_key_init(KEY_WAKEUP, KEY_MODE_GPIO);
     
-    //spi configuration
-    nvic_irq_enable (SPI0_IRQn, 1);
-    spi_config ();
-    spi_enable (SPI0);
+//    com_usart_init();
+//    usart_enable(USART1);
+//    //spi configuration
+//    nvic_irq_enable (SPI0_IRQn, 1);
+//    spi_config ();
+//    spi_enable (SPI0);
     // app debug
     app_debug_init(sys_get_ms,NULL);
     app_debug_register_callback_print(rtt_tx);
-    DEBUG_INFO ("APP DEBUG OK");
-    if(RESET != rcu_flag_get(RCU_FLAG_WWDGTRST)){
-    /* WWDGTRST flag set */
-    gd_eval_led_on(LED1);
-    rcu_all_reset_flag_clear();
+    DEBUG_INFO ("APP DEBUG OK\r\n");
+    while(RESET == usart_flag_get(USART0, USART_FLAG_TC));
+    usart_interrupt_enable(USART0, USART_INT_RBNE);
+	//usart_interrupt_enable(USART0, USART_INT_TBE);
+    uint8_t databuff1[128];
+    while (0)
+    {   
+        //min_send_frame(&m_min_context, (min_msg_t*)&ping_min_msg);
+        DEBUG_INFO ("STILL RUN \r\n");
+        uint16_t uart_data_leng = lwrb_read (&uart_rb, databuff1, 128);
+        if (uart_data_leng)
+        {
+            DEBUG_INFO ("DATA UART FROM ESP32");
+            min_rx_feed (&m_min_context, databuff1, uart_data_leng);
+        }
+        delay_1ms (200);
+    }
 #if 1 // paralle mode
 	u8g2_Setup_st7920_p_128x64_f(&m_u8g2, U8G2_R2, u8x8_byte_8bit_8080mode, u8g2_gpio_8080_update_and_delay);
 #else
@@ -440,109 +456,92 @@ int main(void)
 	u8g2_SetPowerSave(&m_u8g2, 0); // wake up display
 	u8g2_ClearBuffer(&m_u8g2);
 	u8g2_ClearDisplay(&m_u8g2);
-//    while(1);
-    }
-    /* print out the clock frequency of system, AHB, APB1 and APB2 */
-    printf("\r\nCK_SYS is %d", rcu_clock_freq_get(CK_SYS));
-    printf("\r\nCK_AHB is %d", rcu_clock_freq_get(CK_AHB));
-    printf("\r\nCK_APB1 is %d", rcu_clock_freq_get(CK_APB1));
-    printf("\r\nCK_APB2 is %d", rcu_clock_freq_get(CK_APB2));
     
     
-    static uint32_t now;
+//    /* print out the clock frequency of system, AHB, APB1 and APB2 */
+//    printf("\r\nCK_SYS is %d", rcu_clock_freq_get(CK_SYS));
+//    printf("\r\nCK_AHB is %d", rcu_clock_freq_get(CK_AHB));
+//    printf("\r\nCK_APB1 is %d", rcu_clock_freq_get(CK_APB1));
+//    printf("\r\nCK_APB2 is %d", rcu_clock_freq_get(CK_APB2));
+    
+    static uint32_t now = 0;
     static uint32_t last_time = 0;
     uint8_t databuff[128];
     size_t btr_m;
     min_msg_t min_data_buff;
     
+    // if(RESET != rcu_flag_get(RCU_FLAG_WWDGTRST)){
+    /* WWDGTRST flag set */
+   // gd_eval_led_on(LED1);
+   // rcu_all_reset_flag_clear();
+  //  }
     /* enable WWDGT clock */
-    rcu_periph_clock_enable(RCU_WWDGT);
+    //rcu_periph_clock_enable(RCU_WWDGT);
     /*
      *  set WWDGT clock = (PCLK1 (72MHz)/4096)/8 = 2197Hz (~455 us)
      *  set counter value to 127
      *  set window value to 80
-     *  refresh window is: ~455 * (127-80)= 21.3ms < refresh window < ~455 * (127-63) =29.1ms.
+     *  refresh window is: ~455 * (127-80) = 21.3ms < refresh window < ~455 * (127-63) =29.1ms.
      */
-    wwdgt_config(127,80,WWDGT_CFG_PSC_DIV8);
-    wwdgt_enable();
-    lcd_clr_screen();
-    lcd_display_content ("lcd test");
-    while(1){ 
+    
+    //lcd_clr_screen();
+    //lcd_display_content ("lcd test");
+    DEBUG_INFO ("PASS LCD \r\n");
+    // wwdgt_config(4096,2048,WWDGT_CFG_PSC_DIV8);
+    // wwdgt_enable();
+    DEBUG_INFO ("enable wdt \r\n");
+    gpio_bit_set(GPIO_ESP_EN_PORT, GPIO_ESP_EN_PIN);
+    while(1){
         /* update WWDGT counter */
-        wwdgt_counter_update(127);
+       // wwdgt_counter_update(4096);
+        //DEBUG_INFO ("reset wdt cnter\r\n"); 
         now = sys_get_ms();
         if (check_ping_esp_s)
         {
             check_ping_esp_s = false;
+            last_time = now;
         }
-        if (((now - last_time) > 500000) && (!check_ping_esp_s))
+        
+        if (((now - last_time) > 6000) && (!check_ping_esp_s))
         {
             // reset esp32
-            DEBUG_INFO ("TIME OUT RESET ESP32");
+          last_time = now;
+            DEBUG_INFO ("TIME OUT RESET ESP32\r\n");
             gpio_bit_reset(GPIO_ESP_EN_PORT, GPIO_ESP_EN_PIN);
-            delay_1ms (5000);
+            
+            delay_1ms (1000);
+            
             gpio_bit_set(GPIO_ESP_EN_PORT, GPIO_ESP_EN_PIN);
             continue;
             //restart loop
         }
         //feed data to min progress
 
-        uint16_t uart_data_leng = lwrb_read (&uart_rb, databuff, btr_m);
+        uint16_t uart_data_leng = lwrb_read (&uart_rb, databuff, 1);
         if (uart_data_leng)
         {
+            DEBUG_INFO ("DATA UART FROM ESP32\r\n");
             min_rx_feed (&m_min_context, databuff, uart_data_leng);
         }
         
         //transmit data to ask for spi data
         //spi_send_data ((char *)"need you send data", strlen ("need you send data"));
         //ping piority
-        if (now - last_time > 1000)
-        {
-            /*
-            memset (spi_data_send_ping,'\0',sizeof(spi_data_send_ping));
-            char* leng_buff_str;
-            memcpy (leng_buff_str, spi_data_send_ping, sizeof(spi_data_send_ping));
-            spi_data_send_ping [0] = 0x66;
-            spi_data_send_ping [1] = 0x99;
-            spi_data_send_ping [2] = APP_SPI_PING_MSG;
-            spi_data_send_ping [3] = strlen(leng_buff_str);
-            
-            //spi_send_data (spi_header, 2);
-            SPI_transmit_recieve(GPIO_NRF_CS_PORT, GPIO_NRF_CS_PIN, spi_data_send_ping, sizeof(spi_data_send_ping), spi_data_recieve);
-            uint8_t length;
-            // need parse spi data
-            {
-                
-                if (spi_data_recieve[2] == APP_SPI_PING_MSG)
-                {
-                    length = spi_data_recieve[3];
-                    uint8_t* payload = &(spi_data_recieve[3]);
-                    //can copy  ra de bao toan du lieu
-                    memcpy (min_data_send, spi_data_recieve, length);
-                }
-            }
-            //after recieve we need forward data to esp32
-            build_min_tx_data_from_spi (&min_data_buff, spi_data_recieve, length);
-            send_min_data(&min_data_buff);
-            */
-            uint8_t test[256];
-            request_ping_message (test);
-            DEBUG_INFO ("DATA RECIEVE : %s", test);
-        }
+        
         //wait till there no data in register
-        if (ready_to_send)
-        {
-            // recieve data 
-            DEBUG_INFO ("DATA GET FROM ESP32 NEED TO SEND");
-            SPI_transmit_recieve(GPIO_NRF_CS_PORT, GPIO_NRF_CS_PIN, spi_data_send, 128, spi_data_recieve);
-            ready_to_send = false;
-        }
+//        if (ready_to_send)
+//        {
+//            // recieve data 
+//            DEBUG_INFO ("DATA GET FROM ESP32 NEED TO SEND");
+//            SPI_transmit_recieve(GPIO_NRF_CS_PORT, GPIO_NRF_CS_PIN, spi_data_send, 128, spi_data_recieve);
+//            ready_to_send = false;
+//        }
         
         //if need send lora data
         {
-            SPI_transmit_recieve (GPIO_LORA_CS_PORT, GPIO_LORA_CS_PIN, spi_data_send, 128, spi_data_recieve);
+           // SPI_transmit_recieve (GPIO_LORA_CS_PORT, GPIO_LORA_CS_PIN, spi_data_send, 128, spi_data_recieve);
         }
-        last_time = now;
+        
     }
 }
 
@@ -783,7 +782,7 @@ uint8_t u8g2_gpio_8080_update_and_delay(U8X8_UNUSED u8x8_t *u8x8, U8X8_UNUSED ui
 
 void uart0_handler(void)
 {
-    uint16_t data = usart_data_receive(EVAL_COM);
+    uint8_t data = usart_data_receive(USART0);
     lwrb_write (&uart_rb, &data, 1);
 }
 
