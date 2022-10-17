@@ -50,8 +50,11 @@ OF SUCH DAMAGE.
 #include "SEGGER_RTT.h"
 #include "SEGGER_RTT_Conf.h"
 
-#define APP_GD32_SPI_TOKEN      0x6699
 
+#define RTC_CLOCK_SOURCE_IRC40K
+#define APP_GD32_SPI_TOKEN      0x6699
+/* constants definitions */
+#define BKP_VALUE    0x32F0
 
 #define LCD_HORIZONTAL 128
 #define LCD_VERTICAL 64
@@ -90,6 +93,11 @@ typedef struct __attribute((packed))
   uint8_t in_pair_mode;
 }app_beacon_ping_msg_t;
 
+rtc_timestamp_struct rtc_timestamp;
+rtc_tamper_struct rtc_tamper;
+rtc_parameter_struct rtc_initpara;
+__IO uint32_t prescaler_a = 0, prescaler_s = 0;
+
 
 lwrb_t uart_rb;
 uint8_t uart_buffer[512];
@@ -113,15 +121,24 @@ static const min_msg_t ping_min_msg = {
     .len = 0,
     .payload = NULL
 };
-
+//LCD PLACE
 u8g2_t m_u8g2;
 static void delay_ns(uint32_t ns);
 uint8_t u8g2_gpio_8080_update_and_delay(U8X8_UNUSED u8x8_t *u8x8,
 										U8X8_UNUSED uint8_t msg,
 										U8X8_UNUSED uint8_t arg_int,
 										U8X8_UNUSED void *arg_ptr);
+//PROTOTYPE PLACE
+void irc40k_config(void);
+void rtc_setup(void);
+void rtc_pre_config(void);
+void rtc_show_timestamp(void);
+//PROTOTYPE PLACE END    
 
 bool check_ping_esp_s = false;
+bool esp32_started_s = false;
+
+
 
 // spi var
 volatile uint32_t send_n = 0, receive_n = 0;
@@ -211,6 +228,9 @@ void min_rx_callback(void *min_context, min_msg_t *frame)
         min_msg_t  min_ping_response;
         DEBUG_INFO ("PING OK\r\n");
         //DEBUG_INFO ("PAY LOAD:%s", frame->payload);        
+        break;
+    case MIN_ID_ESP32_STARTED:
+        esp32_started_s = true;
         break;
     case MIN_ID_SEND_SPI_FROM_ESP32:    
         memcpy(spi_data_send, frame->payload,frame->len);
@@ -390,6 +410,7 @@ void request_ping_message(uint8_t* p_out)
 int main(void)
 {
     /* configure systick */
+    irc40k_config();
     systick_config();
     
     board_hw_initialize();
@@ -406,13 +427,29 @@ int main(void)
 	m_min_context.rx_frame_payload_buf = min_rx_buffer;
 	min_init_context(&m_min_context);
     
+//*********  CONFIG BACKUP VALUE AND RTC*******    
+    /* enable access to RTC registers in backup domain */
+    rcu_periph_clock_enable(RCU_PMU);
+    pmu_backup_write_enable();
+  
+    rtc_pre_config();
+    rtc_tamper_disable(RTC_TAMPER0);
+  
+    /* check if RTC has aready been configured */
+    if (BKP_VALUE != RTC_BKP0){    
+        rtc_setup(); 
+    }else{
+        /* detect the reset source */
+        if (RESET != rcu_flag_get(RCU_FLAG_PORRST)){
+            DEBUG_INFO("power on reset occurred....\n\r");
+        }else if (RESET != rcu_flag_get(RCU_FLAG_EPRST)){
+            DEBUG_INFO("external reset occurred....\n\r");
+        }
+        DEBUG_INFO("no need to configure RTC....\n\r");
+               
+        //rtc_show_time(); // WE NEED DISPLAY TIME ON LCD ONCE A SECOND
+    }
     
-    /* initilize the LEDs, USART and key */
-//    gd_eval_led_init(LED1); 
-//    gd_eval_led_init(LED2); 
-//    gd_eval_led_init(LED3);
-//    gd_eval_com_init(EVAL_COM);
-//    gd_eval_key_init(KEY_WAKEUP, KEY_MODE_GPIO);
     
 //    com_usart_init();
 //    usart_enable(USART1);
@@ -459,10 +496,10 @@ int main(void)
     
     
 //    /* print out the clock frequency of system, AHB, APB1 and APB2 */
-//    printf("\r\nCK_SYS is %d", rcu_clock_freq_get(CK_SYS));
-//    printf("\r\nCK_AHB is %d", rcu_clock_freq_get(CK_AHB));
-//    printf("\r\nCK_APB1 is %d", rcu_clock_freq_get(CK_APB1));
-//    printf("\r\nCK_APB2 is %d", rcu_clock_freq_get(CK_APB2));
+//    DEBUG_INFO("\r\nCK_SYS is %d", rcu_clock_freq_get(CK_SYS));
+//    DEBUG_INFO("\r\nCK_AHB is %d", rcu_clock_freq_get(CK_AHB));
+//    DEBUG_INFO("\r\nCK_APB1 is %d", rcu_clock_freq_get(CK_APB1));
+//    DEBUG_INFO("\r\nCK_APB2 is %d", rcu_clock_freq_get(CK_APB2));
     
     static uint32_t now = 0;
     static uint32_t last_time = 0;
@@ -470,31 +507,17 @@ int main(void)
     size_t btr_m;
     min_msg_t min_data_buff;
     
-    // if(RESET != rcu_flag_get(RCU_FLAG_WWDGTRST)){
-    /* WWDGTRST flag set */
-   // gd_eval_led_on(LED1);
-   // rcu_all_reset_flag_clear();
-  //  }
-    /* enable WWDGT clock */
-    //rcu_periph_clock_enable(RCU_WWDGT);
-    /*
-     *  set WWDGT clock = (PCLK1 (72MHz)/4096)/8 = 2197Hz (~455 us)
-     *  set counter value to 127
-     *  set window value to 80
-     *  refresh window is: ~455 * (127-80) = 21.3ms < refresh window < ~455 * (127-63) =29.1ms.
-     */
-    
     //lcd_clr_screen();
     //lcd_display_content ("lcd test");
     DEBUG_INFO ("PASS LCD \r\n");
-    // wwdgt_config(4096,2048,WWDGT_CFG_PSC_DIV8);
-    // wwdgt_enable();
+    fwdgt_config(1250, FWDGT_PSC_DIV64);
+    fwdgt_enable();
     DEBUG_INFO ("enable wdt \r\n");
     gpio_bit_set(GPIO_ESP_EN_PORT, GPIO_ESP_EN_PIN);
     while(1){
-        /* update WWDGT counter */
-       // wwdgt_counter_update(4096);
-        //DEBUG_INFO ("reset wdt cnter\r\n"); 
+        /* reload FWDGT counter */
+        fwdgt_counter_reload();
+        
         now = sys_get_ms();
         if (check_ping_esp_s)
         {
@@ -502,16 +525,17 @@ int main(void)
             last_time = now;
         }
         
-        if (((now - last_time) > 6000) && (!check_ping_esp_s))
+        if (((now - last_time) > 6000) && (!check_ping_esp_s) && esp32_started_s) //need to wait esp32 stable then check ping signal
         {
             // reset esp32
-          last_time = now;
+            last_time = now;
             DEBUG_INFO ("TIME OUT RESET ESP32\r\n");
             gpio_bit_reset(GPIO_ESP_EN_PORT, GPIO_ESP_EN_PIN);
             
             delay_1ms (1000);
             
             gpio_bit_set(GPIO_ESP_EN_PORT, GPIO_ESP_EN_PIN);
+            esp32_started_s = false; // this time esp was dead, signal will be send again when esp32 is started
             continue;
             //restart loop
         }
@@ -779,6 +803,114 @@ uint8_t u8g2_gpio_8080_update_and_delay(U8X8_UNUSED u8x8_t *u8x8, U8X8_UNUSED ui
 
 	return 1; // command processed successfully.
 }
+
+/*!
+    \brief      IRC40K configuration function
+    \param[in]  none
+    \param[out] none
+    \retval     none
+*/
+void irc40k_config(void)
+{
+    /* enable IRC40K */
+    rcu_osci_on(RCU_IRC40K);
+    /* wait till IRC40K is ready */
+    rcu_osci_stab_wait(RCU_IRC40K);
+}
+
+/*!
+    \brief      RTC configuration function
+    \param[in]  none
+    \param[out] none
+    \retval     none
+*/
+void rtc_pre_config(void)
+{
+    #if defined (RTC_CLOCK_SOURCE_IRC40K) 
+          //rcu_osci_on(RCU_IRC40K); //use same clock source with watchdog so don't need turn it on again
+          //rcu_osci_stab_wait(RCU_IRC40K);
+          rcu_rtc_clock_config(RCU_RTCSRC_IRC40K);
+  
+          prescaler_s = 0x18F;
+          prescaler_a = 0x63;
+    #elif defined (RTC_CLOCK_SOURCE_LXTAL)
+          rcu_osci_on(RCU_LXTAL);
+          rcu_osci_stab_wait(RCU_LXTAL);
+          rcu_rtc_clock_config(RCU_RTCSRC_LXTAL);
+          prescaler_s = 0xFF;
+          prescaler_a = 0x7F;
+    #else
+    #error RTC clock source should be defined.
+    #endif /* RTC_CLOCK_SOURCE_IRC40K */
+
+    rcu_periph_clock_enable(RCU_RTC);
+    rtc_register_sync_wait();
+}
+
+void rtc_setup(void)
+{
+    /* setup RTC time value */
+    uint32_t tmp_hh = 0xFF, tmp_mm = 0xFF, tmp_ss = 0xFF;
+
+    rtc_initpara.rtc_factor_asyn = prescaler_a;
+    rtc_initpara.rtc_factor_syn = prescaler_s;
+    rtc_initpara.rtc_year = 0x16;
+    rtc_initpara.rtc_day_of_week = RTC_SATURDAY;
+    rtc_initpara.rtc_month = RTC_APR;
+    rtc_initpara.rtc_date = 0x30;
+    rtc_initpara.rtc_display_format = RTC_24HOUR;
+    rtc_initpara.rtc_am_pm = RTC_AM;
+
+    /* current time input 
+    DEBUG_INFO("=======Configure RTC Time========\n\r");
+    DEBUG_INFO("  please input hour:\n\r");
+    while (tmp_hh == 0xFF){    
+        tmp_hh = usart_input_threshold(23);
+        rtc_initpara.rtc_hour = tmp_hh;
+    }
+    DEBUG_INFO("  %0.2x\n\r", tmp_hh);
+    
+    DEBUG_INFO("  please input minute:\n\r");
+    while (tmp_mm == 0xFF){    
+        tmp_mm = usart_input_threshold(59);
+        rtc_initpara.rtc_minute = tmp_mm;
+    }
+    DEBUG_INFO("  %0.2x\n\r", tmp_mm);
+
+    DEBUG_INFO("  please input second:\n\r");
+    while (tmp_ss == 0xFF){
+        tmp_ss = usart_input_threshold(59);
+        rtc_initpara.rtc_second = tmp_ss;
+    }
+    DEBUG_INFO("  %0.2x\n\r", tmp_ss);
+*/
+    /* RTC current time configuration */
+    if(ERROR == rtc_init(&rtc_initpara)){    
+        DEBUG_INFO("** RTC time configuration failed! **\n\r");
+    }else{
+        DEBUG_INFO("** RTC time configuration success! **\n\r");
+        //rtc_show_time();
+        RTC_BKP0 = BKP_VALUE;
+    }   
+}
+
+void rtc_show_timestamp(void)
+{
+    uint32_t ts_subsecond = 0;
+    uint8_t ts_subsecond_ss,ts_subsecond_ts,ts_subsecond_hs ;
+  
+    rtc_timestamp_get(&rtc_timestamp);
+    /* get the subsecond value of timestamp time, and convert it into fractional format */
+    ts_subsecond = rtc_timestamp_subsecond_get();
+    ts_subsecond_ss=(1000-(ts_subsecond*1000+1000)/400)/100;
+    ts_subsecond_ts=(1000-(ts_subsecond*1000+1000)/400)%100/10;
+    ts_subsecond_hs=(1000-(ts_subsecond*1000+1000)/400)%10;
+
+    printf("Get the time-stamp time: %0.2x:%0.2x:%0.2x .%d%d%d \n\r", \
+          rtc_timestamp.rtc_timestamp_hour, rtc_timestamp.rtc_timestamp_minute, rtc_timestamp.rtc_timestamp_second,\
+          ts_subsecond_ss, ts_subsecond_ts, ts_subsecond_hs);
+}
+
 
 void uart0_handler(void)
 {

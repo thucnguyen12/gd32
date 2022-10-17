@@ -379,12 +379,12 @@ ARM Macro Assembler    Page 6
               00000000 
 Command Line: --debug --xref --diag_suppress=9931 --cpu=Cortex-M23 --depend=.\o
 utput\startup_gd32e23x.d -o.\output\startup_gd32e23x.o -I.\RTE\_GD32E23x -IC:\U
-sers\Admin\AppData\Local\Arm\Packs\ARM\CMSIS\5.9.0\CMSIS\Core\Include -IC:\User
-s\Admin\AppData\Local\Arm\Packs\GigaDevice\GD32E23x_DFP\1.0.2\Device\Include --
-predefine="__MICROLIB SETA 1" --predefine="__UVISION_VERSION SETA 536" --predef
-ine="_RTE_ SETA 1" --predefine="GD32E23x SETA 1" --predefine="_RTE_ SETA 1" --l
-ist=.\list\startup_gd32e23x.lst ..\..\Firmware\CMSIS\GD\GD32E23x\Source\ARM\sta
-rtup_gd32e23x.s
+sers\computer\AppData\Local\Arm\Packs\ARM\CMSIS\5.7.0\CMSIS\Core\Include -IC:\U
+sers\computer\AppData\Local\Arm\Packs\GigaDevice\GD32E23x_DFP\1.0.1\Device\Incl
+ude --predefine="__MICROLIB SETA 1" --predefine="__UVISION_VERSION SETA 531" --
+predefine="_RTE_ SETA 1" --predefine="GD32E23x SETA 1" --predefine="_RTE_ SETA 
+1" --list=.\list\startup_gd32e23x.lst ..\..\Firmware\CMSIS\GD\GD32E23x\Source\A
+RM\startup_gd32e23x.s
 
 
 
