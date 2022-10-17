@@ -50,6 +50,12 @@ OF SUCH DAMAGE.
 #include "SEGGER_RTT.h"
 #include "SEGGER_RTT_Conf.h"
 
+/*
+    if you need find prototype search "PROTOTYPE PLACE"
+
+*/
+
+
 
 #define RTC_CLOCK_SOURCE_IRC40K
 #define APP_GD32_SPI_TOKEN      0x6699
@@ -66,6 +72,42 @@ OF SUCH DAMAGE.
 #define APP_SPI_BEACON_MSG  0x02
 #define APP_SPI_KEY_CONBFIG 0x03
 
+#define MAX_BEACON_SENSOR 10
+
+//time defination
+#define FIRSTYEAR 2000 // start year
+#define FIRSTDAY 6	   // 0 = Sunday
+
+typedef struct
+{
+	uint8_t year;
+	uint8_t month;
+	uint8_t day;
+	uint8_t hour;
+	uint8_t minute;
+	uint8_t second;
+	uint8_t weekday;
+} date_time_t;
+
+static const uint8_t day_in_month[12] = {31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+
+typedef enum
+{
+	NO_CONNECT,
+	WIFI_CONNECT,
+	ETH_CONNECT,
+	GSM_CONNECT
+} network_status_t;
+
+typedef struct
+{
+	uint32_t timestamp;
+	network_status_t  network_status;
+	bool need_update_time;
+} esp_status_infor_t;
+
+
+// ble communication define
 typedef struct __attribute((packed))
 {
     uint8_t netkey[16];
@@ -74,14 +116,14 @@ typedef struct __attribute((packed))
 
 typedef union
 {
-     struct __attribute((packed))
-     {
-         uint16_t token;
-         uint8_t msg_id;
-         uint8_t msg_length;
-         uint8_t payload[251];
-     }format;
-     uint8_t value[255];
+    struct __attribute((packed))
+    {
+     uint16_t token;
+     uint8_t msg_id;
+     uint8_t msg_length;
+     uint8_t payload[251];
+    }format;
+    uint8_t value[255];
 }nrf52_format_packet_t;
 
 typedef struct __attribute((packed))
@@ -93,12 +135,34 @@ typedef struct __attribute((packed))
   uint8_t in_pair_mode;
 }app_beacon_ping_msg_t;
 
+typedef struct __attribute((packed))
+{
+  uint8_t device_mac[6];
+  uint8_t device_type;// Maybe Bitfield
+  //app_beacon_tid_t beacon_tid;
+  uint8_t battery;
+}app_beacon_msg_t;
+
+// BLE NOTE INFO VAR
+//char trouble_MAC_list[10][6];
+typedef struct __attribute((packed))
+{
+    char MAC[6];
+    date_time_t time_got_trouble;
+} trouble_info_of_note_t;
+
+static trouble_info_of_note_t trouble_table_info_of_note [MAX_BEACON_SENSOR];
+bool there_are_trouble = false;
+
+
+// TIME VAR
 rtc_timestamp_struct rtc_timestamp;
 rtc_tamper_struct rtc_tamper;
 rtc_parameter_struct rtc_initpara;
 __IO uint32_t prescaler_a = 0, prescaler_s = 0;
 
-
+uint32_t timestamp_temp; // for update
+// communication var
 lwrb_t uart_rb;
 uint8_t uart_buffer[512];
 uint8_t min_txbuffer[1024];
@@ -113,8 +177,9 @@ uint8_t spi_data_send[256];
 uint8_t spi_data_recieve[256];
 bool ready_to_send = false;
 
-uint8_t min_data_send [256];
-
+// esp32 info var
+esp_status_infor_t esp_status_infor;
+network_status_t network_status;
 
 static const min_msg_t ping_min_msg = {
     .id = MIN_ID_PING_ESP_ALIVE,
@@ -130,9 +195,17 @@ uint8_t u8g2_gpio_8080_update_and_delay(U8X8_UNUSED u8x8_t *u8x8,
 										U8X8_UNUSED void *arg_ptr);
 //PROTOTYPE PLACE
 void irc40k_config(void);
-void rtc_setup(void);
+static uint8_t convert_input_to_bcd_format(uint8_t value);
+uint8_t convert_bcd_to_dec (uint8_t bcd);
+void rtc_setup(date_time_t *t);
 void rtc_pre_config(void);
 void rtc_show_timestamp(void);
+void update_time(uint32_t timestamp);
+uint32_t convert_date_time_to_second(date_time_t *t);
+
+uint8_t get_weekday(date_time_t time);
+
+void convert_second_to_date_time(uint32_t sec, date_time_t *t, uint8_t Calyear);
 //PROTOTYPE PLACE END    
 
 bool check_ping_esp_s = false;
@@ -204,6 +277,41 @@ void spi_send_data (uint8_t* data, uint8_t size)
     }
 }
 
+void SPI_transmit_recieve_msg (uint32_t target_port, uint32_t target_pin,uint8_t * data_send, uint32_t size, uint8_t* data_receive)
+{
+    gpio_bit_reset (target_port, target_pin);
+    
+    while(spi_i2s_interrupt_flag_get(SPI1, SPI_I2S_INT_FLAG_RBNE) != RESET) {
+        *(data_receive++) = spi_i2s_data_receive(SPI0);
+    }
+    gpio_bit_set (target_port, target_pin);
+}
+
+void SPI_transmit_recieve (uint32_t target_port, uint32_t target_pin, uint8_t * data_send, uint32_t size, uint8_t* data_receive)
+{
+    gpio_bit_reset (target_port, target_pin);
+    while(RESET == spi_i2s_flag_get(SPI0, SPI_FLAG_TBE)) {
+    }
+    for (uint8_t i = 0; i < size; i++)
+    {
+        spi_i2s_data_transmit(SPI0, *(data_send++));
+    }
+    while(spi_i2s_interrupt_flag_get(SPI1, SPI_I2S_INT_FLAG_RBNE) != RESET) {
+        *(data_receive++) = spi_i2s_data_receive(SPI0);
+    }
+    gpio_bit_set (target_port, target_pin);
+}
+
+void SPI_transmit_self_recieve (uint8_t* data_handle) // NEED PULL CS TO LOW BEFORE CALL THIS FUNCTION
+{
+    while(RESET == spi_i2s_flag_get(SPI0, SPI_FLAG_TBE)) {
+    }
+    spi_i2s_data_transmit(SPI0, *data_handle);
+    while(spi_i2s_interrupt_flag_get(SPI1, SPI_I2S_INT_FLAG_RBNE) != RESET) {
+        *data_handle = spi_i2s_data_receive(SPI0);
+    }
+}
+
 int fputc(int ch, FILE *f)
 {
     usart_data_transmit(USART0, (uint8_t)ch);
@@ -216,8 +324,9 @@ uint32_t sys_get_ms(void)
     return sys_counter;
 }
 
-//handle min data after receive
+//Handle min data after receive
 uint8_t spi_data_buffer[256];
+
 void min_rx_callback(void *min_context, min_msg_t *frame)
 {
     switch (frame->id)
@@ -225,7 +334,7 @@ void min_rx_callback(void *min_context, min_msg_t *frame)
     case MIN_ID_PING_ESP_ALIVE:
         /* code */
         check_ping_esp_s = true;
-        min_msg_t  min_ping_response;
+        //min_msg_t  min_ping_response;
         DEBUG_INFO ("PING OK\r\n");
         //DEBUG_INFO ("PAY LOAD:%s", frame->payload);        
         break;
@@ -238,17 +347,29 @@ void min_rx_callback(void *min_context, min_msg_t *frame)
         ready_to_send = true;
         break;
     case MIN_ID_SEND_HEARTBEAT_MSG:
-            
         break;
     case MIN_ID_SEND_BEACON_MSG:
-        
         break;
     case MIN_ID_SEND_KEY_CONFIG:
-
         break;
     case MIN_ID_PING_ESP_DEAD:
         check_ping_esp_s = false;
         DEBUG_INFO ("PING DEAD, WILL RESET SOON\r\n");
+        break;
+    case MIN_ID_TIMESTAMP:
+        esp_status_infor = *((esp_status_infor_t*)frame->payload);
+        network_status = esp_status_infor.network_status;
+        if (esp_status_infor.need_update_time)
+        {
+            timestamp_temp = (uint32_t)esp_status_infor.timestamp;
+            DEBUG_INFO ("update time now\r\n");
+            update_time (timestamp_temp);
+        }
+        else 
+        {
+            // update display only
+            DEBUG_INFO ("NO NEED update time \r\n");
+        }
         break;
     default:
         break;
@@ -274,12 +395,14 @@ void build_min_tx_data_from_spi(min_msg_t* min_msg, uint8_t* data_spi, uint8_t s
     memcpy (min_msg->payload, data_spi, size);
     min_msg->len = size;
 }
+//MIN DATA PLACE END
+
+//LCD PLACE
 
 void lcd_clr_screen(void)
 {
 	u8g2_ClearBuffer(&m_u8g2);
 	u8g2_ClearDisplay(&m_u8g2);
-	//	u8g2_SetFont(&m_u8g2, u8g2_font_unifont_t_vietnamese1);
 	u8g2_FirstPage(&m_u8g2);
 }
 
@@ -314,42 +437,148 @@ void lcd_display_content_at_pos(const char *msg, u8g2_uint_t x, u8g2_uint_t y)
 	u8g2_SendBuffer(&m_u8g2);
 }
 
-void SPI_transmit_recieve_msg (uint32_t target_port, uint32_t target_pin,uint8_t * data_send, uint32_t size, uint8_t* data_receive)
+void lcd_display_status (void)
 {
-    gpio_bit_reset (target_port, target_pin);
-    
-    while(spi_i2s_interrupt_flag_get(SPI1, SPI_I2S_INT_FLAG_RBNE) != RESET) {
-        *(data_receive++) = spi_i2s_data_receive(SPI0);
-    }
-    gpio_bit_set (target_port, target_pin);
-}
+    char counter[24];
+    u8g2_ClearBuffer(&m_u8g2);
 
-
-void SPI_transmit_recieve (uint32_t target_port, uint32_t target_pin, uint8_t * data_send, uint32_t size, uint8_t* data_receive)
-{
-    gpio_bit_reset (target_port, target_pin);
-    while(RESET == spi_i2s_flag_get(SPI0, SPI_FLAG_TBE)) {
-    }
-    for (uint8_t i = 0; i < size; i++)
+    // Display header
+    //RTC_TimeTypeDef time;
+    //HAL_RTC_GetTime(&hrtc, &time, RTC_FORMAT_BIN);
+    rtc_timestamp_get(&rtc_timestamp);
+//    /* get the subsecond value of timestamp time, and convert it into fractional format */
+//    uint32_t ts_subsecond;
+//    uint8_t ts_subsecond_ss,ts_subsecond_ts,ts_subsecond_hs;
+//    ts_subsecond = rtc_timestamp_subsecond_get();
+//    ts_subsecond_ss=(1000-(ts_subsecond*1000+1000)/400)/100;
+//    ts_subsecond_ts=(1000-(ts_subsecond*1000+1000)/400)%100/10;
+//    ts_subsecond_hs=(1000-(ts_subsecond*1000+1000)/400)%10;
+    sprintf(counter, "%02u:%02u:%02u", rtc_timestamp.rtc_timestamp_hour, rtc_timestamp.rtc_timestamp_minute, rtc_timestamp.rtc_timestamp_second);
+    u8g2_SetFont(&m_u8g2, u8g2_font_unifont_t_vietnamese1); // can chon font cho header
+    do
     {
-        spi_i2s_data_transmit(SPI0, *(data_send++));
+        u8g2_DrawUTF8(&m_u8g2,
+                      LCD_MEASURE_X_CENTER(u8g2_GetUTF8Width(&m_u8g2, counter)),
+                      15,
+                      counter);
+    } while (u8g2_NextPage(&m_u8g2));
+
+    u8g2_SetFont(&m_u8g2, u8g2_font_6x13_tf);
+    if (network_status == WIFI_CONNECT)
+    {
+        sprintf(counter, "WIFI CONNECTED");
     }
-    while(spi_i2s_interrupt_flag_get(SPI1, SPI_I2S_INT_FLAG_RBNE) != RESET) {
-        *(data_receive++) = spi_i2s_data_receive(SPI0);
+    else if (network_status == ETH_CONNECT)
+    {
+        sprintf(counter, "ETH CONNECTED");
     }
-    gpio_bit_set (target_port, target_pin);
+    else if (network_status == GSM_CONNECT)
+    {
+        sprintf(counter, "GSM CONNECTED");
+    }
+    else
+    {
+        sprintf(counter, "LOST CONNECTION");
+    }
+    u8g2_DrawUTF8(&m_u8g2, 32, 38, counter);
+    
+    //sprintf(counter, "IMEI %s", final_jig_value.gsm_imei);
+    //u8g2_DrawUTF8(&m_u8g2, 5,55, counter);
+    u8g2_SendBuffer(&m_u8g2);
 }
+
+void lcd_display_trouble (trouble_info_of_note_t* trouble_info_table, uint8_t trouble_sensor_cnt)
+{
+    char counter[24];
+    u8g2_ClearBuffer(&m_u8g2);
+    u8g2_SetFont(&m_u8g2, u8g2_font_unifont_t_vietnamese1); // can chon font cho header
+    
+    sprintf(counter, "TIME %02u:%02u:%02u", (trouble_info_table[trouble_sensor_cnt]).time_got_trouble.hour,
+                                   (trouble_info_table[trouble_sensor_cnt]).time_got_trouble.minute,
+                                   (trouble_info_table[trouble_sensor_cnt]).time_got_trouble.second);
+    do
+    {
+        u8g2_DrawUTF8(&m_u8g2,
+                      LCD_MEASURE_X_CENTER(u8g2_GetUTF8Width(&m_u8g2, counter)),
+                      15,
+                      counter);
+    }while (u8g2_NextPage(&m_u8g2));
+    u8g2_SetFont(&m_u8g2, u8g2_font_6x13_tf);
+    sprintf(counter, "MAC ALARM:");
+    u8g2_DrawUTF8(&m_u8g2, 32, 38, counter);
+    sprintf(counter, "%s", (trouble_info_table[trouble_sensor_cnt]).MAC);
+    u8g2_DrawUTF8(&m_u8g2, 5,55, counter);
+}
+
+/*
+    COPY DATA FROM SPI INTO TABLE
+*/
+
+void add_info_into_trouble_mac_table (trouble_info_of_note_t* trouble_info_table, char* MAC)
+{
+    uint32_t ts_subsecond = 0;
+    uint8_t ts_subsecond_ss,ts_subsecond_ts,ts_subsecond_hs ;
+  
+    rtc_timestamp_get(&rtc_timestamp);
+//    /* get the subsecond value of timestamp time, and convert it into fractional format */
+//    ts_subsecond = rtc_timestamp_subsecond_get();
+//    ts_subsecond_ss=(1000-(ts_subsecond*1000+1000)/400)/100;
+//    ts_subsecond_ts=(1000-(ts_subsecond*1000+1000)/400)%100/10;
+//    ts_subsecond_hs=(1000-(ts_subsecond*1000+1000)/400)%10;
+    date_time_t time_now;
+    time_now.day = convert_bcd_to_dec (rtc_timestamp.rtc_timestamp_date);
+    time_now.month = (rtc_timestamp.rtc_timestamp_month);
+    time_now.year = convert_bcd_to_dec (rtc_initpara.rtc_year);
+    time_now.hour = (rtc_timestamp.rtc_timestamp_hour);
+    time_now.minute = convert_bcd_to_dec (rtc_timestamp.rtc_timestamp_minute);
+    time_now.second = convert_bcd_to_dec (rtc_timestamp.rtc_timestamp_second);
+    memcpy (&(trouble_info_table->time_got_trouble), &time_now, sizeof(date_time_t));
+    memcpy (&(trouble_info_table->MAC), MAC, sizeof(trouble_info_table->MAC));
+}
+
+void check_trouble_MAC (trouble_info_of_note_t* trouble_info_table)
+{
+    char mac_sample[6];
+    memset (mac_sample,'\0', sizeof (mac_sample));
+    static uint8_t i = 0;
+    
+    if (i < MAX_BEACON_SENSOR)
+    {
+        if (memcmp (trouble_info_table[i].MAC, mac_sample, sizeof (mac_sample)) != 0)
+        {
+            lcd_display_trouble (trouble_info_table, i);
+            i++;
+        }
+        else
+        {
+            // display again from start or no one got trouble
+            i = 0;
+        }
+    }
+    else
+    {
+        //all sensor got trouble
+        i = 0;
+    }
+}
+
+//LCD PLACE END
+
+//DEBUG OUTPUT
 
 uint32_t rtt_tx(const void *buffer, uint32_t size)
 {
     return SEGGER_RTT_Write(0, buffer, size);
 }
 
-void request_ping_message(uint8_t* p_out)
+
+// TEST SPI PING
+
+uint8_t request_spi_message(uint8_t* p_out, uint8_t MSG_ID)
 {
     nrf52_format_packet_t nrf52_local_packet;
     nrf52_local_packet.format.token = APP_GD32_SPI_TOKEN;
-    nrf52_local_packet.format.msg_id = APP_SPI_PING_MSG;
+    nrf52_local_packet.format.msg_id = MSG_ID;
     nrf52_local_packet.format.msg_length = 0;
     memset(&nrf52_local_packet.format.payload, 0, sizeof(nrf52_local_packet.format.payload));
     /*Write*/
@@ -358,7 +587,7 @@ void request_ping_message(uint8_t* p_out)
     DEBUG_INFO ("send test spi msg");
     for(uint16_t i = 0; i < sizeof(nrf52_format_packet_t); i++)
     {
-        //nrf52_local_packet.value[i] = m_write(nrf52_local_packet.value[i]);
+        //SPI_transmit_self_recieve (&(nrf52_local_packet.value[i]));  // if there are hardware UNCOMMENT THIS LINE 
         while(RESET == spi_i2s_flag_get(SPI0, SPI_FLAG_TBE)) {
         }
             spi_i2s_data_transmit(SPI0, nrf52_local_packet.value[i]);
@@ -366,13 +595,15 @@ void request_ping_message(uint8_t* p_out)
             nrf52_local_packet.value[i] = spi_i2s_data_receive(SPI0);
         }
     }
-    
-    if(nrf52_local_packet.format.token == APP_GD32_SPI_TOKEN && nrf52_local_packet.format.msg_id == APP_SPI_PING_MSG)
+    uint8_t ping_msg_length = 0;
+    if(nrf52_local_packet.format.token == APP_GD32_SPI_TOKEN && nrf52_local_packet.format.msg_id == MSG_ID)
     {
-            DEBUG_INFO("Found Ping response\r\n");
-            uint8_t ping_msg_length = nrf52_local_packet.format.msg_length;
-            app_beacon_ping_msg_t *p_ping_msg = (app_beacon_ping_msg_t*)&nrf52_local_packet.format.payload;
-            /*<Only for Debug>*/
+        DEBUG_INFO("Found msg response\r\n");
+        ping_msg_length = nrf52_local_packet.format.msg_length;
+        app_beacon_ping_msg_t *p_ping_msg = (app_beacon_ping_msg_t*)&nrf52_local_packet.format.payload;
+        /*<Only for Debug>*/
+        if (MSG_ID == APP_SPI_PING_MSG)
+        {
             DEBUG_INFO("Alarm value:%0x08x\r\nTotal Sensor count:%u\r\nPair mode:%d\r\nGateway Mac:", p_ping_msg->alarm_value, p_ping_msg->sensor_count, p_ping_msg->in_pair_mode);
             for(uint8_t  i = 0; i < 6; i++)
             {
@@ -389,14 +620,16 @@ void request_ping_message(uint8_t* p_out)
                 DEBUG_RAW("%02x-", p_ping_msg->mesh_key.netkey[i]);
             }
             DEBUG_RAW("\r\n");
+        }
     }
     else
     {
-            DEBUG_ERROR("Wrong ping response format\r\n");
+        DEBUG_ERROR("Wrong ping response format\r\n");
     }
-    memcpy (p_out, &nrf52_local_packet, 256);
+    memcpy (p_out, nrf52_local_packet.format.payload, ping_msg_length);
     // nRF52 CS PIN
     gpio_bit_set(GPIO_NRF_CS_PORT, GPIO_NRF_CS_PIN);
+    return ping_msg_length;
 }
 
 
@@ -437,7 +670,7 @@ int main(void)
   
     /* check if RTC has aready been configured */
     if (BKP_VALUE != RTC_BKP0){    
-        rtc_setup(); 
+        rtc_setup(NULL); 
     }else{
         /* detect the reset source */
         if (RESET != rcu_flag_get(RCU_FLAG_PORRST)){
@@ -449,7 +682,6 @@ int main(void)
                
         //rtc_show_time(); // WE NEED DISPLAY TIME ON LCD ONCE A SECOND
     }
-    
     
 //    com_usart_init();
 //    usart_enable(USART1);
@@ -503,17 +735,24 @@ int main(void)
     
     static uint32_t now = 0;
     static uint32_t last_time = 0;
+    static uint32_t last_time_ping = 0;
     uint8_t databuff[128];
     size_t btr_m;
     min_msg_t min_data_buff;
     
-    //lcd_clr_screen();
-    //lcd_display_content ("lcd test");
-    DEBUG_INFO ("PASS LCD \r\n");
+//    lcd_clr_screen();
+//    lcd_display_content ("lcd test");
+//    DEBUG_INFO ("PASS LCD \r\n");
     fwdgt_config(1250, FWDGT_PSC_DIV64);
     fwdgt_enable();
     DEBUG_INFO ("enable wdt \r\n");
     gpio_bit_set(GPIO_ESP_EN_PORT, GPIO_ESP_EN_PIN);
+    
+    //init some para
+    memset (trouble_table_info_of_note,'\0', sizeof (trouble_table_info_of_note)); //reset list trouble mac
+    
+    
+    
     while(1){
         /* reload FWDGT counter */
         fwdgt_counter_reload();
@@ -538,6 +777,27 @@ int main(void)
             esp32_started_s = false; // this time esp was dead, signal will be send again when esp32 is started
             continue;
             //restart loop
+        }
+        static uint8_t sensor_cnt = 0;
+        if ((now - last_time_ping) > 1000)
+        {
+            static uint8_t spi_msg_data[251];
+            app_beacon_ping_msg_t* ble_status;
+            uint8_t byte_read = request_spi_message (spi_msg_data, APP_SPI_PING_MSG);
+            // process and send data to esp
+            ble_status = (app_beacon_ping_msg_t*)&spi_msg_data;
+            if (ble_status->alarm_value > 1)
+            {
+                there_are_trouble = true;
+                //add mac to trouble mac list
+                add_info_into_trouble_mac_table(trouble_table_info_of_note, (char *)(ble_status->gateway_mac));
+                sensor_cnt ++;
+            }
+        }
+        if (there_are_trouble)
+        {
+            // add delay time
+            check_trouble_MAC(trouble_table_info_of_note);
         }
         //feed data to min progress
 
@@ -804,6 +1064,9 @@ uint8_t u8g2_gpio_8080_update_and_delay(U8X8_UNUSED u8x8_t *u8x8, U8X8_UNUSED ui
 	return 1; // command processed successfully.
 }
 
+
+// TIME AND RTC PLACE
+
 /*!
     \brief      IRC40K configuration function
     \param[in]  none
@@ -847,49 +1110,89 @@ void rtc_pre_config(void)
     rtc_register_sync_wait();
 }
 
-void rtc_setup(void)
+static uint8_t convert_input_to_bcd_format(uint8_t value)
+{
+    uint32_t index = 0;
+    uint32_t tmp[2] = {0, 0};
+    if (value < 10)
+    {
+        tmp[0] = 0;
+        tmp[1] = value;
+    }
+    else if ((value >= 10) && (value < 100))
+    {
+        tmp[0] = value / 10;
+        tmp[1] = value % 10;
+    }
+    else
+    {
+        DEBUG_ERROR ("INPUT TIME VALUE WRONG: %d", value);
+    }
+    index = (tmp[1]) + ((tmp[0]) <<4);
+    return index;
+}
+uint8_t convert_bcd_to_dec (uint8_t bcd)
+{
+   uint32_t index = 0;
+   uint32_t tmp[2] = {0, 0};
+   if (bcd < 0x10)
+   {
+       tmp[0] = 0;
+       tmp[1] = bcd;
+   }
+   else
+   {
+       tmp[1] = bcd & 0x0f;
+       tmp[0] = (bcd & 0xf0) >> 4;
+   }
+   index = (tmp[1]) + ((tmp[0])*10);
+   return index;
+}
+
+
+void rtc_setup(date_time_t *t)
 {
     /* setup RTC time value */
     uint32_t tmp_hh = 0xFF, tmp_mm = 0xFF, tmp_ss = 0xFF;
 
     rtc_initpara.rtc_factor_asyn = prescaler_a;
     rtc_initpara.rtc_factor_syn = prescaler_s;
-    rtc_initpara.rtc_year = 0x16;
-    rtc_initpara.rtc_day_of_week = RTC_SATURDAY;
-    rtc_initpara.rtc_month = RTC_APR;
-    rtc_initpara.rtc_date = 0x30;
     rtc_initpara.rtc_display_format = RTC_24HOUR;
     rtc_initpara.rtc_am_pm = RTC_AM;
-
-    /* current time input 
-    DEBUG_INFO("=======Configure RTC Time========\n\r");
-    DEBUG_INFO("  please input hour:\n\r");
-    while (tmp_hh == 0xFF){    
-        tmp_hh = usart_input_threshold(23);
-        rtc_initpara.rtc_hour = tmp_hh;
+    if (t == NULL)
+    {
+        rtc_initpara.rtc_year = 0x16;
+        rtc_initpara.rtc_day_of_week = RTC_SATURDAY;
+        rtc_initpara.rtc_month = RTC_APR;
+        rtc_initpara.rtc_date = 0x30;
+        rtc_initpara.rtc_hour = 0;
+        rtc_initpara.rtc_minute = 0;
+        rtc_initpara.rtc_second = 0;
     }
-    DEBUG_INFO("  %0.2x\n\r", tmp_hh);
+    else
+    {
+        rtc_initpara.rtc_year = convert_input_to_bcd_format (t->year);
+        rtc_initpara.rtc_month = (t->month);
+        rtc_initpara.rtc_date = convert_input_to_bcd_format (t->day);
+        if (get_weekday (*t) == 0)
+        {
+           rtc_initpara.rtc_day_of_week = RTC_SUNDAY; 
+        }
+        else
+        {
+           rtc_initpara.rtc_day_of_week =  get_weekday (*t);
+        }
+        rtc_initpara.rtc_hour =(t->hour);
+        rtc_initpara.rtc_minute = convert_input_to_bcd_format (t->minute);
+        rtc_initpara.rtc_second = convert_input_to_bcd_format (t->second);
+    }
     
-    DEBUG_INFO("  please input minute:\n\r");
-    while (tmp_mm == 0xFF){    
-        tmp_mm = usart_input_threshold(59);
-        rtc_initpara.rtc_minute = tmp_mm;
-    }
-    DEBUG_INFO("  %0.2x\n\r", tmp_mm);
-
-    DEBUG_INFO("  please input second:\n\r");
-    while (tmp_ss == 0xFF){
-        tmp_ss = usart_input_threshold(59);
-        rtc_initpara.rtc_second = tmp_ss;
-    }
-    DEBUG_INFO("  %0.2x\n\r", tmp_ss);
-*/
     /* RTC current time configuration */
     if(ERROR == rtc_init(&rtc_initpara)){    
         DEBUG_INFO("** RTC time configuration failed! **\n\r");
     }else{
         DEBUG_INFO("** RTC time configuration success! **\n\r");
-        //rtc_show_time();
+        rtc_show_timestamp();
         RTC_BKP0 = BKP_VALUE;
     }   
 }
@@ -906,15 +1209,136 @@ void rtc_show_timestamp(void)
     ts_subsecond_ts=(1000-(ts_subsecond*1000+1000)/400)%100/10;
     ts_subsecond_hs=(1000-(ts_subsecond*1000+1000)/400)%10;
 
-    printf("Get the time-stamp time: %0.2x:%0.2x:%0.2x .%d%d%d \n\r", \
+    DEBUG_INFO("Get the time-stamp time: %0.2x:%0.2x:%0.2x .%d%d%d \n\r", \
           rtc_timestamp.rtc_timestamp_hour, rtc_timestamp.rtc_timestamp_minute, rtc_timestamp.rtc_timestamp_second,\
           ts_subsecond_ss, ts_subsecond_ts, ts_subsecond_hs);
 }
 
+void convert_second_to_date_time(uint32_t sec, date_time_t *t, uint8_t Calyear)
+{
+	uint16_t day;
+	uint8_t year;
+	uint16_t days_of_year;
+	uint8_t leap400;
+	uint8_t month;
 
+	t->second = sec % 60;
+	sec /= 60;
+	t->minute = sec % 60;
+	sec /= 60;
+	t->hour = sec % 24;
+
+	if (Calyear == 0)
+		return;
+
+	day = (uint16_t)(sec / 24);
+
+	year = FIRSTYEAR % 100;					   // 0..99
+	leap400 = 4 - ((FIRSTYEAR - 1) / 100 & 3); // 4, 3, 2, 1
+
+	for (;;)
+	{
+		days_of_year = 365;
+		if ((year & 3) == 0)
+		{
+			days_of_year = 366; // leap year
+			if (year == 0 || year == 100 || year == 200)
+			{ // 100 year exception
+				if (--leap400)
+				{ // 400 year exception
+					days_of_year = 365;
+				}
+			}
+		}
+		if (day < days_of_year)
+		{
+			break;
+		}
+		day -= days_of_year;
+		year++; // 00..136 / 99..235
+	}
+	t->year = year + FIRSTYEAR / 100 * 100 - 2000; // + century
+	if (days_of_year & 1 && day > 58)
+	{		   // no leap year and after 28.2.
+		day++; // skip 29.2.
+	}
+
+	for (month = 1; day >= day_in_month[month - 1]; month++)
+	{
+		day -= day_in_month[month - 1];
+	}
+
+	t->month = month; // 1..12
+	t->day = day + 1; // 1..31
+}
+
+uint8_t get_weekday(date_time_t time)
+{
+	time.weekday = (time.day +=
+					time.month < 3 ? time.year-- : time.year - 2,
+					23 * time.month / 9 + time.day + 4 + time.year / 4 -
+						time.year / 100 + time.year / 400);
+	return time.weekday % 7;
+}
+
+uint32_t convert_date_time_to_second(date_time_t *t)
+{
+	uint8_t i;
+	uint32_t result = 0;
+	uint16_t idx, year;
+
+	year = t->year + 2000;
+
+	/* Calculate days of years before */
+	result = (uint32_t)year * 365;
+	if (t->year >= 1)
+	{
+		result += (year + 3) / 4;
+		result -= (year - 1) / 100;
+		result += (year - 1) / 400;
+	}
+
+	/* Start with 2000 a.d. */
+	result -= 730485UL;
+
+	/* Make month an array index */
+	idx = t->month - 1;
+
+	/* Loop thru each month, adding the days */
+	for (i = 0; i < idx; i++)
+	{
+		result += day_in_month[i];
+	}
+
+	/* Leap year? adjust February */
+	if (!(year % 400 == 0 || (year % 4 == 0 && year % 100 != 0)))
+	{
+		if (t->month > 2)
+		{
+			result--;
+		}
+	}
+
+	/* Add remaining days */
+	result += t->day;
+
+	/* Convert to seconds, add all the other stuff */
+	result = (result - 1) * 86400L + (uint32_t)t->hour * 3600 +
+			 (uint32_t)t->minute * 60 + t->second;
+	return result;
+}
+
+void update_time(uint32_t timestamp)
+{
+    date_time_t time_now;
+    convert_second_to_date_time (timestamp, &time_now, 1);
+    rtc_setup (&time_now);
+}
+// RTC AND TIME PLACE END
+
+// UART0
 void uart0_handler(void)
 {
     uint8_t data = usart_data_receive(USART0);
     lwrb_write (&uart_rb, &data, 1);
 }
-
