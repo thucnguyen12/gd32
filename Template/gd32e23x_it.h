@@ -61,6 +61,6 @@ void PendSV_Handler(void);
 void SysTick_Handler(void);
 
 // this funtion help link uart data
-void uart0_handler(void);
-
+void uart0_handler (void);
+void rs232_handler (void);
 #endif /* GD32E23X_IT_H */

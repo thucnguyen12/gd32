@@ -72,14 +72,18 @@ void board_hw_initialize(void)
     
     
     //spi gpio
-    gpio_mode_set(GPIO_SPI0_SCK_PORT, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, GPIO_SPI0_SCK_PIN);
+    gpio_mode_set(GPIO_SPI0_SCK_PORT, GPIO_MODE_AF, GPIO_PUPD_PULLUP, GPIO_SPI0_SCK_PIN);
     gpio_output_options_set(GPIO_SPI0_SCK_PORT, GPIO_OTYPE_PP, GPIO_OSPEED_50MHZ, GPIO_SPI0_SCK_PIN);
     
-    gpio_mode_set(GPIO_SPI0_MISO_PORT, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, GPIO_SPI0_MISO_PIN);
+    gpio_mode_set(GPIO_SPI0_MISO_PORT, GPIO_MODE_AF, GPIO_PUPD_PULLUP, GPIO_SPI0_MISO_PIN);
     gpio_output_options_set(GPIO_SPI0_MISO_PORT, GPIO_OTYPE_PP, GPIO_OSPEED_50MHZ, GPIO_SPI0_MISO_PIN);
     
-    gpio_mode_set(GPIO_SPI0_MOSI_PORT, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, GPIO_SPI0_MOSI_PIN);
+    gpio_mode_set(GPIO_SPI0_MOSI_PORT, GPIO_MODE_AF, GPIO_PUPD_PULLUP, GPIO_SPI0_MOSI_PIN);
     gpio_output_options_set(GPIO_SPI0_MOSI_PORT, GPIO_OTYPE_PP, GPIO_OSPEED_50MHZ, GPIO_SPI0_MOSI_PIN);
+    
+    gpio_af_set(GPIO_SPI0_SCK_PORT, GPIO_AF_0, GPIO_SPI0_SCK_PIN);
+    gpio_af_set(GPIO_SPI0_MISO_PORT, GPIO_AF_0, GPIO_SPI0_MISO_PIN);
+    gpio_af_set(GPIO_SPI0_MOSI_PORT, GPIO_AF_0, GPIO_SPI0_MOSI_PIN);
     
     //lora
     gpio_mode_set(GPIO_LORA_CS_PORT, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, GPIO_LORA_CS_PIN);
@@ -91,7 +95,7 @@ void board_hw_initialize(void)
     gpio_output_options_set(GPIO_LORA_EN_PORT, GPIO_OTYPE_PP, GPIO_OSPEED_50MHZ, GPIO_LORA_EN_PIN);
     
     //spi cs
-    gpio_mode_set(GPIO_NRF_CS_PORT, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, GPIO_NRF_CS_PIN);
+    gpio_mode_set(GPIO_NRF_CS_PORT, GPIO_MODE_OUTPUT, GPIO_PUPD_PULLUP, GPIO_NRF_CS_PIN);
     gpio_output_options_set(GPIO_NRF_CS_PORT, GPIO_OTYPE_PP, GPIO_OSPEED_50MHZ, GPIO_NRF_CS_PIN);
     
     //zigbee
@@ -135,7 +139,7 @@ void board_hw_initialize(void)
 
     usart_enable(USART1);
     usart_interrupt_enable(USART1, USART_INT_RBNE);
-	// usart_interrupt_enable(USART1, USART_INT_TBE);
+	//usart_interrupt_enable(USART1, USART_INT_TBE);
 	nvic_irq_enable(USART1_IRQn, 0);
     
 }

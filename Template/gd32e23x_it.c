@@ -108,6 +108,22 @@ void USART0_IRQHandler(void)
        usart_flag_clear(USART0, USART_FLAG_RBNE);
        uart0_handler();
    }
+   if(SET == usart_interrupt_flag_get(USART1, USART_INT_FLAG_IDLE))
+   {
+       usart_flag_clear(USART1, USART_FLAG_RBNE);
+   }
+   if(SET == usart_interrupt_flag_get(USART1, USART_INT_FLAG_ERR_NERR))
+   {
+       usart_flag_clear(USART1, USART_FLAG_NERR); 
+   }
+   if(SET == usart_interrupt_flag_get(USART1, USART_INT_FLAG_ERR_ORERR))
+   {
+       usart_flag_clear(USART1, USART_FLAG_FERR);
+   }
+   if(SET == usart_interrupt_flag_get(USART1, USART_INT_FLAG_ERR_FERR))
+   {
+       usart_flag_clear(USART1, USART_FLAG_PERR);
+   }
 }
 
 void USART1_IRQHandler(void)
@@ -116,7 +132,7 @@ void USART1_IRQHandler(void)
    if(SET == usart_interrupt_flag_get(USART1, USART_INT_FLAG_RBNE))
    {
        usart_flag_clear(USART1, USART_FLAG_RBNE);
-       uart0_handler();
+       rs232_handler();
    }
 
    if(SET == usart_interrupt_flag_get(USART1, USART_INT_FLAG_TBE))
