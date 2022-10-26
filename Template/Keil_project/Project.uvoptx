@@ -140,7 +140,7 @@
         <SetRegEntry>
           <Number>0</Number>
           <Key>DLGUARM</Key>
-          <Name></Name>
+          <Name>d</Name>
         </SetRegEntry>
         <SetRegEntry>
           <Number>0</Number>
@@ -162,18 +162,18 @@
         <Bp>
           <Number>0</Number>
           <Type>0</Type>
-          <LineNumber>508</LineNumber>
+          <LineNumber>104</LineNumber>
           <EnabledFlag>1</EnabledFlag>
-          <Address>134225152</Address>
+          <Address>134218724</Address>
           <ByteObject>0</ByteObject>
           <HtxType>0</HtxType>
           <ManyObjects>0</ManyObjects>
           <SizeOfObject>0</SizeOfObject>
           <BreakByAccess>0</BreakByAccess>
           <BreakIfRCount>1</BreakIfRCount>
-          <Filename>..\main.c</Filename>
+          <Filename>..\gd32e23x_it.c</Filename>
           <ExecCommand></ExecCommand>
-          <Expression>\\Project\../main.c\508</Expression>
+          <Expression>\\Project\../gd32e23x_it.c\104</Expression>
         </Bp>
       </Breakpoint>
       <WatchWindow1>
