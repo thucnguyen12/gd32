@@ -357,19 +357,20 @@ void spi_config(void)
 {
     gpio_bit_set (GPIO_NRF_CS_PORT, GPIO_NRF_CS_PIN);
     spi_parameter_struct spi_init_struct;
-    rcu_periph_clock_enable(RCU_SPI0);
+    
     /* deinitilize SPI and the parameters */
     spi_i2s_deinit(SPI0);
 //    spi_i2s_deinit(SPI1);
+    rcu_periph_clock_enable(RCU_SPI0);
     spi_struct_para_init(&spi_init_struct);
 
     /* configure SPI0 parameter */
     spi_init_struct.trans_mode           = SPI_TRANSMODE_FULLDUPLEX;
     spi_init_struct.device_mode          = SPI_MASTER;
     spi_init_struct.frame_size           = SPI_FRAMESIZE_8BIT;
-    spi_init_struct.clock_polarity_phase = SPI_CK_PL_HIGH_PH_2EDGE;
+    spi_init_struct.clock_polarity_phase = SPI_CK_PL_LOW_PH_1EDGE;
     spi_init_struct.nss                  = SPI_NSS_SOFT;
-    spi_init_struct.prescale             = SPI_PSC_32;
+    spi_init_struct.prescale             = SPI_PSC_64;
     spi_init_struct.endian               = SPI_ENDIAN_MSB;
     spi_init(SPI0, &spi_init_struct);
 
@@ -774,13 +775,13 @@ uint8_t request_spi_message(uint8_t* p_out, uint8_t MSG_ID, void* input)
         //SPI_transmit_self_recieve (&(nrf52_local_packet.value[i]));  // if there are hardware UNCOMMENT THIS LINE 
         while(RESET == spi_i2s_flag_get(SPI0, SPI_FLAG_TBE) && Timeout) {
             if ((Timeout % 100) == 0)
-            fwdgt_counter_reload();
+//            fwdgt_counter_reload();
             Timeout--;
         }
             spi_i2s_data_transmit(SPI0, nrf52_local_packet.value[i]);
         while(spi_i2s_flag_get(SPI0, SPI_FLAG_RBNE) == RESET && Timeout) {        
             if ((Timeout % 100) == 0)
-            fwdgt_counter_reload();
+//            fwdgt_counter_reload();
             Timeout--;
         }
             nrf52_local_packet.value[i] = spi_i2s_data_receive(SPI0);
@@ -848,6 +849,7 @@ uint8_t request_spi_message(uint8_t* p_out, uint8_t MSG_ID, void* input)
         }
         else if ((MSG_ID == APP_SPI_KEY_CONFIG) || (MSG_ID == APP_SPI_SYN_TIME)) /// config msg and syn time msg
         {
+            DEBUG_INFO ("RECEIVE KEY RESPONSE");
             char * response_for_config = (char*) &nrf52_local_packet.format.payload;
             // if strstr (response_for_config, "CONFIG OK") { return ok no need send again}
         }
@@ -1110,6 +1112,7 @@ int main(void)
     
     static uint32_t now = 0;
     static uint32_t last_time = 0;
+    static uint32_t last_time_ping = 0;
     uint8_t databuff[128];
     size_t btr_m;
     min_msg_t min_data_buff;
@@ -1125,7 +1128,16 @@ int main(void)
         /* update WWDGT counter */
        // wwdgt_counter_update(4096);
         //DEBUG_INFO ("reset wdt cnter\r\n"); 
+        
         now = sys_get_ms();
+        //feed data to min progress
+
+        uint16_t uart_data_leng = lwrb_read (&uart_rb, databuff, 1);
+        if (uart_data_leng)
+        {
+            DEBUG_VERBOSE ("DATA UART FROM ESP32\r\n");
+            min_rx_feed (&m_min_context, databuff, uart_data_leng);
+        }
         if (check_ping_esp_s)
         {
             check_ping_esp_s = false;
@@ -1145,15 +1157,28 @@ int main(void)
             continue;
             //restart loop
         }
-        //feed data to min progress
-
-        uint16_t uart_data_leng = lwrb_read (&uart_rb, databuff, 1);
-        if (uart_data_leng)
+        app_beacon_ping_msg_t* ble_status;
+        if (((now - last_time_ping) > 1000))
         {
-            DEBUG_INFO ("DATA UART FROM ESP32\r\n");
-            min_rx_feed (&m_min_context, databuff, uart_data_leng);
-        }
-        
+            last_time_ping = now;
+            static uint8_t spi_msg_data[251];
+//            if (!in_pair_mode)
+//            {
+                uint8_t byte_read = request_spi_message (spi_msg_data, APP_SPI_PING_MSG, NULL);
+                
+                // check spi data
+                ble_status = (app_beacon_ping_msg_t*)spi_msg_data;
+                // process and send data to esp (for ping msg)
+                {
+                    min_msg_t min_beacon_ping_msg;
+                    min_beacon_ping_msg.id = 0x12;
+                    min_beacon_ping_msg.payload = ble_status;
+                    min_beacon_ping_msg.len = byte_read;
+                    send_min_data (&min_beacon_ping_msg);
+                }
+//                lcd_display_status ();// hien thi trang thai khi khong o trang thai pair mode
+//            }
+        }    
     }
 }
 
