@@ -34,6 +34,7 @@ void board_hw_initialize(void)
     
     gpio_mode_set(GPIO_LCD_EN_PORT, GPIO_MODE_OUTPUT, GPIO_PUPD_PULLUP, GPIO_LCD_EN_PIN);
     gpio_output_options_set(GPIO_LCD_EN_PORT, GPIO_OTYPE_PP, GPIO_OSPEED_50MHZ, GPIO_LCD_EN_PIN);
+    gpio_bit_reset(GPIO_LCD_EN_PORT, GPIO_LCD_EN_PIN);
     
     gpio_mode_set(GPIO_LCD_D0_PORT, GPIO_MODE_OUTPUT, GPIO_PUPD_PULLUP, GPIO_LCD_D0_PIN);
     gpio_output_options_set(GPIO_LCD_D0_PORT, GPIO_OTYPE_PP, GPIO_OSPEED_50MHZ, GPIO_LCD_D0_PIN);
@@ -86,7 +87,7 @@ void board_hw_initialize(void)
     gpio_af_set(GPIO_SPI0_MOSI_PORT, GPIO_AF_0, GPIO_SPI0_MOSI_PIN);
     
     //spi cs
-    gpio_mode_set(GPIO_NRF_CS_PORT, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, GPIO_NRF_CS_PIN);
+    gpio_mode_set(GPIO_NRF_CS_PORT, GPIO_MODE_OUTPUT, GPIO_PUPD_PULLUP, GPIO_NRF_CS_PIN);
     gpio_output_options_set(GPIO_NRF_CS_PORT, GPIO_OTYPE_PP, GPIO_OSPEED_50MHZ, GPIO_NRF_CS_PIN);
     
     //lora

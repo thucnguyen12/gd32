@@ -278,7 +278,7 @@ typedef struct
     uint32_t iv_index;
     uint32_t sequence_number;
     uint8_t mac[6];
-}__attribute((packed)) ble_config_t;
+} ble_config_t;
 
 typedef struct 
 {
@@ -320,7 +320,7 @@ bool there_are_trouble = false;
 // LCD VAR end
 
 // esp32 info var
-esp_status_infor_t esp_status_infor;
+
 network_status_t network_status;
 
 //min var
@@ -462,6 +462,7 @@ uint8_t byte_data_spi;
 ble_config_t* ble_config;
 uint16_t unicast_addr;
 node_sensor_data_t* sensor_data_response;
+esp_status_infor_t* esp_status_infor;
 
 void min_rx_callback(void *min_context, min_msg_t *frame)
 {
@@ -492,11 +493,12 @@ void min_rx_callback(void *min_context, min_msg_t *frame)
         DEBUG_INFO ("RECEIVE KEY CONFIG");
         ble_config = (ble_config_t*) frame->payload;
         byte_data_spi = request_spi_message (spi_data_buffer, APP_SPI_KEY_CONFIG, ble_config);
-        if ((memcmp(spi_data_buffer, "OK", byte_data_spi))) // thong nhat ban tin response ok sau
-        {
-            
-//            byte_data_spi = request_spi_message (spi_data_buffer, APP_SPI_KEY_CONFIG, ble_config); //sau dong nay càn kiem tra xem có ok ko?
-        }
+//        if ((memcmp(spi_data_buffer, "OK", byte_data_spi))) // thong nhat ban tin response ok sau
+//        {
+//            
+////            byte_data_spi = request_spi_message (spi_data_buffer, APP_SPI_KEY_CONFIG, ble_config); //sau dong nay càn kiem tra xem có ok ko?
+//        }
+
         break;
     case MIN_ID_NEW_SENSOR_PAIRING:
         // nhan uncast addr 
@@ -504,6 +506,14 @@ void min_rx_callback(void *min_context, min_msg_t *frame)
         sensor_data_response = (node_sensor_data_t*) frame->payload;
         request_spi_message (spi_data_buffer, APP_SPI_NODE_PAIR_INFO, &sensor_data_response);
         // dung 1 cai co la da gui uncast addr r
+        break;
+    case MIN_ID_TIMESTAMP:
+        esp_status_infor = (esp_status_infor_t*) frame->payload;
+        network_status = esp_status_infor->network_status;
+//        if (esp_status_infor->timestamp)
+//        {
+//            update_time(esp_status_infor->timestamp);
+//        }
         break;
     case MIN_ID_PING_ESP_DEAD:
         check_ping_esp_s = false;
@@ -836,7 +846,7 @@ uint8_t request_spi_message(uint8_t* p_out, uint8_t MSG_ID, void* input)
 {
     nrf52_format_packet_t nrf52_local_packet;
     nrf52_local_packet.format.token = APP_GD32_SPI_TOKEN;
-    nrf52_local_packet.format.msg_id = APP_SPI_PING_MSG;
+    nrf52_local_packet.format.msg_id = MSG_ID;
     nrf52_local_packet.format.msg_length = 0;
     memset(&nrf52_local_packet.format.payload, 0, sizeof(nrf52_local_packet.format.payload));
     // need to send msg config
@@ -844,16 +854,18 @@ uint8_t request_spi_message(uint8_t* p_out, uint8_t MSG_ID, void* input)
     {
         input = (ble_config_t *) input;
         memcpy(&nrf52_local_packet.format.payload, input, sizeof(ble_config_t));
+        nrf52_local_packet.format.msg_length = sizeof(ble_config_t);
     }
     else if ((MSG_ID == APP_SPI_SYN_TIME) && (input != NULL))    
     {
         input = (uint32_t *) input;
         memcpy(&nrf52_local_packet.format.payload, input, sizeof(uint32_t));
+        nrf52_local_packet.format.msg_length = sizeof(uint32_t);
     }
     /*Write*/
     /*nrF52 CS Pin*/
     gpio_bit_reset(GPIO_NRF_CS_PORT, GPIO_NRF_CS_PIN);
-    DEBUG_INFO ("send spi msg");
+    DEBUG_INFO ("send spi msg\r\n");
     for(uint16_t i = 0; i < sizeof(nrf52_format_packet_t); i++)
     {
         uint32_t Timeout = 1000;
@@ -1188,18 +1200,18 @@ int main(void)
     while(RESET == usart_flag_get(USART0, USART_FLAG_TC));
     usart_interrupt_enable(USART0, USART_INT_RBNE);
 	//usart_interrupt_enable(USART0, USART_INT_TBE);
-    uint8_t databuff1[128];
+    uint8_t databuff1[256];
     while (0)
     {   
         //min_send_frame(&m_min_context, (min_msg_t*)&ping_min_msg);
-        DEBUG_INFO ("STILL RUN \r\n");
-        uint16_t uart_data_leng = lwrb_read (&uart_rb, databuff1, 128);
+        uint16_t uart_data_leng = lwrb_read (&uart_rb, databuff1, 1);
+        DEBUG_INFO ("STILL RUN, data length read: %d \r\n", uart_data_leng);
         if (uart_data_leng)
         {
-            DEBUG_INFO ("DATA UART FROM ESP32");
+            DEBUG_INFO ("DATA UART FROM ESP32\r\n");
             min_rx_feed (&m_min_context, databuff1, uart_data_leng);
         }
-        delay_1ms (200);
+        delay_1ms (20);
     }
 #if 1 // paralle mode
 	u8g2_Setup_st7920_p_128x64_f(&m_u8g2, U8G2_R2, u8x8_byte_8bit_8080mode, u8g2_gpio_8080_update_and_delay);
@@ -1238,12 +1250,12 @@ int main(void)
     //lcd_display_content ("lcd test");
     DEBUG_INFO ("PASS LCD \r\n");
     DEBUG_INFO ("enable wdt \r\n");
-    gpio_bit_set(GPIO_ESP_EN_PORT, GPIO_ESP_EN_PIN);
+//    gpio_bit_set(GPIO_ESP_EN_PORT, GPIO_ESP_EN_PIN);
     static uint8_t spi_msg_data[251];
     while(1){
         /* update WWDGT counter */
        // wwdgt_counter_update(4096);
-        //DEBUG_INFO ("reset wdt cnter\r\n"); 
+//        DEBUG_INFO ("NOW RUNNING\r\n"); 
         
         now = sys_get_ms();
         //feed data to min progress
@@ -1276,10 +1288,10 @@ int main(void)
         app_beacon_ping_msg_t* ble_status;
         
         // on circle process ping msg
-        if (((now - last_time_ping) > 1000))
+        if (0)//((now - last_time_ping) > 1000))
         {
             last_time_ping = now;
-            static uint8_t spi_msg_data[251];
+            
             for (uint8_t i = 0; i < 6; i++)
             {
                 if (ble_status->button_state.button_state[i])
@@ -1408,29 +1420,33 @@ int main(void)
         //check beacon data
         if ((now - last_time_ask_beacon_data) > 2000)
         {
+            DEBUG_INFO ("BEACON DATA \r\n");
             last_time_ask_beacon_data = now;
-            request_spi_message (spi_msg_data, APP_SPI_BEACON_MSG, NULL); //ask about pair status
-            app_beacon_data_t * beacon_data;
-            beacon_data = (app_beacon_data_t*) spi_msg_data;
-            min_msg_t min_beacon_data_msg;
-            min_beacon_data_msg.id = MIN_ID_SEND_AND_RECEIVE_HEARTBEAT_MSG;
-            min_beacon_data_msg.payload = beacon_data;
-            min_beacon_data_msg.len = sizeof (app_beacon_data_t);
-            send_min_data (&min_beacon_data_msg);
-            if (beacon_data->propreties.Name.alarmState)
+            uint8_t spi_read_byte = request_spi_message (spi_msg_data, APP_SPI_BEACON_MSG, NULL); //ask about pair status
+            if (spi_read_byte)
             {
-                // co bao dong tu node nay
-                there_are_trouble = true;
-                for (uint8_t i = 0; i < MAX_BEACON_SENSOR; i++)
+                app_beacon_data_t * beacon_data;
+                beacon_data = (app_beacon_data_t*) spi_msg_data;
+                min_msg_t min_beacon_data_msg;
+                min_beacon_data_msg.id = MIN_ID_SEND_AND_RECEIVE_HEARTBEAT_MSG;
+                min_beacon_data_msg.payload = beacon_data;
+                min_beacon_data_msg.len = sizeof (app_beacon_data_t);
+                send_min_data (&min_beacon_data_msg);
+                if (beacon_data->propreties.Name.alarmState)
                 {
-                    if (memcmp(beacon_data->device_mac, trouble_table_info_of_node[i].MAC,6))
+                    // co bao dong tu node nay
+                    there_are_trouble = true;
+                    for (uint8_t i = 0; i < MAX_BEACON_SENSOR; i++)
                     {
-                        //neu chua co trong bang thi them vao
-                        add_info_into_trouble_mac_table(&trouble_table_info_of_node[i], 
-                                       (char *)(beacon_data->device_mac),
-                                        beacon_data->propreties.Name.deviceType,
-                                        beacon_data->timestamp);
-                   }
+                        if (memcmp(beacon_data->device_mac, trouble_table_info_of_node[i].MAC,6))
+                        {
+                            //neu chua co trong bang thi them vao
+                            add_info_into_trouble_mac_table(&trouble_table_info_of_node[i], 
+                                           (char *)(beacon_data->device_mac),
+                                            beacon_data->propreties.Name.deviceType,
+                                            beacon_data->timestamp);
+                       }
+                    }
                 }
             }
         }
@@ -1798,7 +1814,7 @@ void update_time(uint32_t timestamp)
 
 void uart0_handler(void)
 {
-    uint8_t data = usart_data_receive(USART0);
+    uint8_t data = (uint8_t)usart_data_receive(USART0);
     lwrb_write (&uart_rb, &data, 1);
 }
 
