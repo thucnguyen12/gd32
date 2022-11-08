@@ -1173,39 +1173,39 @@ int main(void)
 //    usart_enable(USART1);
 //    //spi configuration
 //    nvic_irq_enable (SPI0_IRQn, 1);
-    spi_config ();
-    spi_enable (SPI0);
+//    spi_config ();
+//    spi_enable (SPI0);
     
 //*********  CONFIG BACKUP VALUE AND RTC*******    
     /* enable access to RTC registers in backup domain */
-    rcu_periph_clock_enable(RCU_PMU);
-    pmu_backup_write_enable();
-  
-    rtc_pre_config();
-    rtc_tamper_disable(RTC_TAMPER0);
-  
-    /* check if RTC has aready been configured */
-    if (BKP_VALUE != RTC_BKP0){    
-        rtc_setup (NULL); 
-    }else{
-        /* detect the reset source */
-        if (RESET != rcu_flag_get(RCU_FLAG_PORRST)){
-            DEBUG_INFO("power on reset occurred....\n\r");
-        }else if (RESET != rcu_flag_get(RCU_FLAG_EPRST)){
-            DEBUG_INFO("external reset occurred....\n\r");
-        }
-        DEBUG_INFO("no need to configure RTC....\n\r");
-               
-        //rtc_show_time(); // WE NEED DISPLAY TIME ON LCD ONCE A SECOND
-    }
-    // app debug
-    app_debug_init(sys_get_ms,NULL);
-    app_debug_register_callback_print(rtt_tx);
+//    rcu_periph_clock_enable(RCU_PMU);
+//    pmu_backup_write_enable();
+//  
+//    rtc_pre_config();
+//    rtc_tamper_disable(RTC_TAMPER0);
+//  
+//    /* check if RTC has aready been configured */
+//    if (BKP_VALUE != RTC_BKP0){    
+//        rtc_setup (NULL); 
+//    }else{
+//        /* detect the reset source */
+//        if (RESET != rcu_flag_get(RCU_FLAG_PORRST)){
+//            DEBUG_INFO("power on reset occurred....\n\r");
+//        }else if (RESET != rcu_flag_get(RCU_FLAG_EPRST)){
+//            DEBUG_INFO("external reset occurred....\n\r");
+//        }
+//        DEBUG_INFO("no need to configure RTC....\n\r");
+//               
+//        //rtc_show_time(); // WE NEED DISPLAY TIME ON LCD ONCE A SECOND
+//    }
+//    // app debug
+//    app_debug_init(sys_get_ms,NULL);
+//    app_debug_register_callback_print(rtt_tx);
     DEBUG_INFO ("APP DEBUG OK\r\n");
-    while(RESET == usart_flag_get(USART0, USART_FLAG_TC));
-    usart_interrupt_enable(USART0, USART_INT_RBNE);
+   // while(RESET == usart_flag_get(USART0, USART_FLAG_TC));
+    //usart_interrupt_enable(USART0, USART_INT_RBNE);
 	//usart_interrupt_enable(USART0, USART_INT_TBE);
-    uint8_t databuff1[256];
+    //uint8_t databuff1[256];
     while (0)
     {   
         //min_send_frame(&m_min_context, (min_msg_t*)&ping_min_msg);
@@ -1254,6 +1254,7 @@ int main(void)
         delay_1ms (2000);
     }
 #if 1 // paralle mode
+    //gpio_bit_reset(BOARD_HW_LCD_RW_PORT, BOARD_HW_LCD_RW_PIN);
 	u8g2_Setup_st7920_p_128x64_f(&m_u8g2, U8G2_R2, u8x8_byte_8bit_8080mode, u8g2_gpio_8080_update_and_delay);
 #else
 #warning "do nothing"
@@ -1269,8 +1270,19 @@ int main(void)
 	u8g2_SetPowerSave(&m_u8g2, 0); // wake up display
 	u8g2_ClearBuffer(&m_u8g2);
 	u8g2_ClearDisplay(&m_u8g2);
-    
-    
+    u8g2_SetFont(&m_u8g2, u8g2_font_unifont_t_vietnamese1);
+    u8g2_FirstPage(&m_u8g2);
+    do
+    {
+        const char *str_begin = "S450 SYSTEM";
+        u8g2_DrawUTF8(&m_u8g2,
+                      LCD_MEASURE_X_CENTER(u8g2_GetUTF8Width(&m_u8g2, str_begin)),
+                      LCD_MEASURE_Y_CENTER(u8g2_GetMaxCharHeight(&m_u8g2)),
+                      str_begin);
+    } while (u8g2_NextPage(&m_u8g2));
+    u8g2_SendBuffer(&m_u8g2); // transfer data from uC memory to display
+
+    u8g2_SetFont(&m_u8g2, u8g2_font_6x12_me);
 //    /* print out the clock frequency of system, AHB, APB1 and APB2 */
 //    printf("\r\nCK_SYS is %d", rcu_clock_freq_get(CK_SYS));
 //    printf("\r\nCK_AHB is %d", rcu_clock_freq_get(CK_AHB));
@@ -1287,14 +1299,14 @@ int main(void)
     min_msg_t min_data_buff;
     
     lcd_clr_screen();
-    lcd_display_content ("lcd test");
+    lcd_display_content ("ALOALO");
     DEBUG_INFO ("PASS LCD \r\n");
     DEBUG_INFO ("enable wdt \r\n");
     while (1)
     {
 //        lcd_clr_screen();
         DEBUG_INFO ("display lcd now\r\n");
-        lcd_display_content ("lcd testing");
+        lcd_display_content ("Hello LCD");
         delay_1ms (6000);
     }
     
@@ -1692,7 +1704,7 @@ uint8_t u8g2_gpio_8080_update_and_delay(U8X8_UNUSED u8x8_t *u8x8, U8X8_UNUSED ui
 	{
 		if (arg_int)
 		{
-			gpio_bit_reset(GPIO_LCD_RW_PORT, GPIO_LCD_RW_PIN);
+			gpio_bit_set(GPIO_LCD_RW_PORT, GPIO_LCD_RW_PIN);
 		}
 		else
 		{
