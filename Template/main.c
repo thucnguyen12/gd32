@@ -371,7 +371,11 @@ uint8_t get_weekday(date_time_t time);
 void convert_second_to_date_time(uint32_t sec, date_time_t *t, uint8_t Calyear);
 
 uint8_t request_spi_message(uint8_t* p_out, uint8_t MSG_ID, void* input);
+
+void lcd_display_trouble (trouble_info_of_note_t* trouble_info_table, uint8_t trouble_sensor_cnt);
+
 //PROTOTYPE PLACE END    
+
 //genaeral var
 bool in_pair_mode = false;
 //
@@ -479,14 +483,12 @@ void min_rx_callback(void *min_context, min_msg_t *frame)
         esp32_started_s = true;
         break;
     case MIN_ID_SEND_SPI_FROM_ESP32:    
-//        memcpy(spi_data_send, frame->payload,frame->len);
-//        spi_send_data (spi_data_send, strlen ((char*)spi_data_send));
-//        ready_to_send = true;
+
         break;
     case MIN_ID_SEND_AND_RECEIVE_HEARTBEAT_MSG:
             
         break;
-    case MIN_ID_SEND_BEACON_MSG:
+    case MIN_ID_SEND_AND_RECEIVE_BEACON_MSG:
         
         break;
     case MIN_ID_SEND_KEY_CONFIG:
@@ -594,7 +596,7 @@ void lcd_clr_screen(void)
 
 void lcd_display_content(const char *msg)
 {
-	lcd_clr_screen();
+//	lcd_clr_screen();
 	do
 	{
 		u8g2_DrawUTF8(&m_u8g2,
@@ -865,7 +867,7 @@ uint8_t request_spi_message(uint8_t* p_out, uint8_t MSG_ID, void* input)
     /*Write*/
     /*nrF52 CS Pin*/
     gpio_bit_reset(GPIO_NRF_CS_PORT, GPIO_NRF_CS_PIN);
-    DEBUG_INFO ("send spi msg\r\n");
+    DEBUG_INFO ("send spi msg: %d\r\n", MSG_ID);
     for(uint16_t i = 0; i < sizeof(nrf52_format_packet_t); i++)
     {
         uint32_t Timeout = 1000;
@@ -901,7 +903,7 @@ uint8_t request_spi_message(uint8_t* p_out, uint8_t MSG_ID, void* input)
         DEBUG_RAW ("\r\n");
     // end debug 
     uint8_t ping_msg_length = 0;
-    if(nrf52_local_packet.format.token == APP_GD32_SPI_TOKEN && nrf52_local_packet.format.msg_id == MSG_ID)
+    if((nrf52_local_packet.format.token == APP_GD32_SPI_TOKEN) && (nrf52_local_packet.format.msg_id == MSG_ID))
     {
         DEBUG_INFO("Found msg response\r\n");
         ping_msg_length = nrf52_local_packet.format.msg_length;
@@ -915,12 +917,12 @@ uint8_t request_spi_message(uint8_t* p_out, uint8_t MSG_ID, void* input)
             {
                 DEBUG_RAW("%02x-", p_ping_msg->gateway_mac[i]);
             }
-            DEBUG_RAW("\r\nAppKey");
+            DEBUG_INFO("\r\nAppKey: ");
             for(uint8_t  i = 0; i < 16; i++)
             {
                 DEBUG_RAW("%02x-", p_ping_msg->mesh_key.appkey[i]);
             }
-            DEBUG_RAW("\r\nnetKey");
+            DEBUG_INFO("\r\nnetKey: ");
             for(uint8_t  i = 0; i < 16; i++)
             {
                 DEBUG_RAW("%02x-", p_ping_msg->mesh_key.netkey[i]);
@@ -930,7 +932,7 @@ uint8_t request_spi_message(uint8_t* p_out, uint8_t MSG_ID, void* input)
         else if (MSG_ID == APP_SPI_BEACON_MSG)
         {
             app_beacon_data_t *p_data_msg = (app_beacon_data_t*) &nrf52_local_packet.format.payload;
-            DEBUG_INFO ("%x: %x: %x: %x: %x: %x\r\n", p_data_msg->device_mac[0],
+            DEBUG_INFO ("MAC: %x: %x: %x: %x: %x: %x\r\n", p_data_msg->device_mac[0],
                                                 p_data_msg->device_mac[1],
                                                 p_data_msg->device_mac[2],
                                                 p_data_msg->device_mac[3],
@@ -942,13 +944,16 @@ uint8_t request_spi_message(uint8_t* p_out, uint8_t MSG_ID, void* input)
             DEBUG_INFO ("khoi hien tai: %d \r\n", p_data_msg->smoke_value);
             DEBUG_INFO ("nhiet hien tai: %d \r\n", p_data_msg->teperature_value);
             
-            DEBUG_INFO ("APP BEACON MSG RECEIVE");
+            DEBUG_INFO ("APP BEACON MSG RECEIVE\r\n");
         }
         else if ((MSG_ID == APP_SPI_KEY_CONFIG) || (MSG_ID == APP_SPI_SYN_TIME) || (MSG_ID == APP_SPI_NODE_PAIR_INFO)) /// config msg and syn time msg
         {
-            DEBUG_INFO ("RECEIVE KEY RESPONSE");
+            DEBUG_INFO ("RECEIVE KEY RESPONSE\r\n");
             char * response_for_config = (char*) &nrf52_local_packet.format.payload;
-            // if strstr (response_for_config, "CONFIG OK") { return ok no need send again}
+             if (strstr (response_for_config, "OK"))// { return ok no need send again}
+             {
+                 DEBUG_INFO ("RESPONE OK\r\n");
+             }
         }
     }
     else
@@ -1110,6 +1115,7 @@ void scan_button_state(button_state_str* state)
 {
     if (state->button1)
     {
+        DEBUG_INFO ("BUTTON 1 PRESSED\r\n");
         there_are_trouble = false;
         state->button1 = 0;
     }
@@ -1155,7 +1161,6 @@ int main(void)
     m_min_context.callback = &m_min_setting;
 	m_min_context.rx_frame_payload_buf = min_rx_buffer;
 	min_init_context(&m_min_context);
-    
     
     /* initilize the LEDs, USART and key */
 //    gd_eval_led_init(LED1); 
@@ -1204,14 +1209,49 @@ int main(void)
     while (0)
     {   
         //min_send_frame(&m_min_context, (min_msg_t*)&ping_min_msg);
-        uint16_t uart_data_leng = lwrb_read (&uart_rb, databuff1, 1);
-        DEBUG_INFO ("STILL RUN, data length read: %d \r\n", uart_data_leng);
-        if (uart_data_leng)
-        {
-            DEBUG_INFO ("DATA UART FROM ESP32\r\n");
-            min_rx_feed (&m_min_context, databuff1, uart_data_leng);
-        }
-        delay_1ms (20);
+//        uint16_t uart_data_leng = lwrb_read (&uart_rb, databuff1, 1);
+//        DEBUG_INFO ("STILL RUN, data length read: %d \r\n", uart_data_leng);
+//        if (uart_data_leng)
+//        {
+//            DEBUG_INFO ("DATA UART FROM ESP32\r\n");
+//            min_rx_feed (&m_min_context, databuff1, uart_data_leng);
+//        }
+//        gpio_bit_set(GPIO_LCD_PWM_PORT, GPIO_LCD_PWM_PIN);
+//        static bool toogle = true;
+//        if (toogle)
+//        {
+//            DEBUG_INFO ("RESET\r\n");
+//            gpio_bit_reset(GPIO_LCD_DI_PORT, GPIO_LCD_DI_PIN);
+//            gpio_bit_reset(GPIO_LCD_RW_PORT, GPIO_LCD_RW_PIN);
+//            gpio_bit_reset(GPIO_LCD_EN_PORT, GPIO_LCD_EN_PIN);
+//            gpio_bit_reset(GPIO_LCD_D0_PORT, GPIO_LCD_D0_PIN);
+//            gpio_bit_reset(GPIO_LCD_D1_PORT, GPIO_LCD_D1_PIN);
+//            gpio_bit_reset(GPIO_LCD_D2_PORT, GPIO_LCD_D2_PIN);
+//            gpio_bit_reset(GPIO_LCD_D3_PORT, GPIO_LCD_D3_PIN);
+//            gpio_bit_reset(GPIO_LCD_D4_PORT, GPIO_LCD_D4_PIN);
+//            gpio_bit_reset(GPIO_LCD_D5_PORT, GPIO_LCD_D5_PIN);
+//            gpio_bit_reset(GPIO_LCD_D6_PORT, GPIO_LCD_D6_PIN);
+//            gpio_bit_reset(GPIO_LCD_D7_PORT, GPIO_LCD_D7_PIN);
+//            toogle = false;
+//        }
+//        else
+//        {
+//            DEBUG_INFO ("SET\r\n");
+//            gpio_bit_set(GPIO_LCD_DI_PORT, GPIO_LCD_DI_PIN);
+//            gpio_bit_set(GPIO_LCD_RW_PORT, GPIO_LCD_RW_PIN);
+//            gpio_bit_set(GPIO_LCD_EN_PORT, GPIO_LCD_EN_PIN);
+//            gpio_bit_set(GPIO_LCD_D0_PORT, GPIO_LCD_D0_PIN);
+//            gpio_bit_set(GPIO_LCD_D1_PORT, GPIO_LCD_D1_PIN);
+//            gpio_bit_set(GPIO_LCD_D2_PORT, GPIO_LCD_D2_PIN);
+//            gpio_bit_set(GPIO_LCD_D3_PORT, GPIO_LCD_D3_PIN);
+//            gpio_bit_set(GPIO_LCD_D4_PORT, GPIO_LCD_D4_PIN);
+//            gpio_bit_set(GPIO_LCD_D5_PORT, GPIO_LCD_D5_PIN);
+//            gpio_bit_set(GPIO_LCD_D6_PORT, GPIO_LCD_D6_PIN);
+//            gpio_bit_set(GPIO_LCD_D7_PORT, GPIO_LCD_D7_PIN);
+//            toogle = true;
+//        }
+    
+        delay_1ms (2000);
     }
 #if 1 // paralle mode
 	u8g2_Setup_st7920_p_128x64_f(&m_u8g2, U8G2_R2, u8x8_byte_8bit_8080mode, u8g2_gpio_8080_update_and_delay);
@@ -1246,10 +1286,18 @@ int main(void)
     size_t btr_m;
     min_msg_t min_data_buff;
     
-    //lcd_clr_screen();
-    //lcd_display_content ("lcd test");
+    lcd_clr_screen();
+    lcd_display_content ("lcd test");
     DEBUG_INFO ("PASS LCD \r\n");
     DEBUG_INFO ("enable wdt \r\n");
+    while (1)
+    {
+//        lcd_clr_screen();
+        DEBUG_INFO ("display lcd now\r\n");
+        lcd_display_content ("lcd testing");
+        delay_1ms (6000);
+    }
+    
 //    gpio_bit_set(GPIO_ESP_EN_PORT, GPIO_ESP_EN_PIN);
     static uint8_t spi_msg_data[251];
     while(1){
@@ -1285,147 +1333,163 @@ int main(void)
             continue;
             //restart loop
         }
-        app_beacon_ping_msg_t* ble_status;
+        app_beacon_ping_msg_t* ble_status = NULL;
         
         // on circle process ping msg
-        if (0)//((now - last_time_ping) > 1000))
+        if (((now - last_time_ping) > 1000))
         {
+//            lcd_clr_screen();
+//            lcd_display_content ("lcd test");
             last_time_ping = now;
-            
-            for (uint8_t i = 0; i < 6; i++)
+            uint8_t spi_read_byte = request_spi_message (spi_msg_data, APP_SPI_PING_MSG, NULL); // PING INTERVAL
+            if (spi_read_byte)
             {
-                if (ble_status->button_state.button_state[i])
-                {
-                    // send min data de xu li nut nhan
-                    switch (i)
-                    {
-                        case 1:
-                            state_of_button.button1 = true;
-                        break;
-                        case 2:
-                            state_of_button.button2 = true;
-                        break;
-                        case 3:
-                            state_of_button.button3 = true;
-                        break;
-                        case 4:
-                            state_of_button.button4 = true;
-                        break;
-                        case 5:
-                            state_of_button.button5 = true;
-                        break;
-                        case 6:
-                            state_of_button.button6 = true;
-                        break;
-                        default:
-                        break;
-                    }
-                }
-            }
-            
-            scan_button_state(&state_of_button);//scan, clear flag and process button
-            
-            if (there_are_trouble && !(in_pair_mode))
-            {
-                check_trouble_MAC(trouble_table_info_of_node);
-            }
-            if (ble_status->in_pair_mode && !(in_pair_mode))
-            {
-                // wait until it end
-//                static uint32_t last_timeout = 0;
-                /*
-                    gui min id yeu cau cap uncast addr
-                    doi co uncast addr gui lai cho NRF
-                    sau khi nhan dc ping ko con trong pair mode hoac time out thi thoats khoi che do pair 
-                */
-                pair_timeout = 3000;
-                request_spi_message (spi_msg_data, APP_SPI_NEW_BEACON_MSG, NULL); //ask about pair info
-                beacon_pair_info_t *new_beacon;
-                new_beacon = (beacon_pair_info_t *) spi_msg_data;
-                //send data through min
-                min_msg_t min_beacon_data_msg;
-                min_beacon_data_msg.id = MIN_ID_NEW_SENSOR_PAIRING;
-                min_beacon_data_msg.payload = new_beacon;
-                min_beacon_data_msg.len = sizeof (beacon_pair_info_t);
-                send_min_data (&min_beacon_data_msg);
-                lcd_display_content ("IN PAIR MODE");
-                
-                in_pair_mode = true;
-                //hien thi them thoi gian trong pair mode
-            }
-            if (ble_status->alarm_value.Value)
-            {
-                there_are_trouble = true;
-            }
-            if ((!in_pair_mode) && (!there_are_trouble))
-            {
-                uint8_t byte_read = request_spi_message (spi_msg_data, APP_SPI_PING_MSG, NULL);
-                
-                // check spi data
                 ble_status = (app_beacon_ping_msg_t*)spi_msg_data;
-                // process and send data to esp (for ping msg)
-                if (byte_read)
+                min_msg_t min_beacon_data_msg;
+                min_beacon_data_msg.id = MIN_ID_SEND_AND_RECEIVE_HEARTBEAT_MSG;
+                min_beacon_data_msg.payload = ble_status;
+                min_beacon_data_msg.len = sizeof (app_beacon_ping_msg_t);
+                send_min_data (&min_beacon_data_msg);
+            
+                for (uint8_t i = 0; i < 6; i++)
                 {
-                    min_msg_t min_beacon_ping_msg;
-                    min_beacon_ping_msg.id = MIN_ID_SEND_AND_RECEIVE_HEARTBEAT_MSG;
-                    min_beacon_ping_msg.payload = ble_status;
-                    min_beacon_ping_msg.len = byte_read;
-                    send_min_data (&min_beacon_ping_msg);
+                    if (ble_status->button_state.button_state[i])
+                    {
+                        // send min data de xu li nut nhan
+                        switch (i)
+                        {
+                            case 0:
+                                state_of_button.button1 = true;
+                            break;
+                            case 1:
+                                state_of_button.button2 = true;
+                            break;
+                            case 2:
+                                state_of_button.button3 = true;
+                            break;
+                            case 3:
+                                state_of_button.button4 = true;
+                            break;
+                            case 4:
+                                state_of_button.button5 = true;
+                            break;
+                            case 5:
+                                state_of_button.button6 = true;
+                            break;
+                            default:
+                            break;
+                        }
+                    }
                 }
-                lcd_display_status ();// hien thi trang thai khi khong o trang thai pair mode
-            }
-            if ((!ble_status->in_pair_mode) && in_pair_mode && pair_timeout)
-            {
-                pair_timeout--;
-                // Check if IN PAIR MODE NOW ASK FOR NEW BEACON INFO about pair status
                 
-                //can gui unicast addr trc khi hoi ve tinh trang pair
-                uint8_t byte_read = request_spi_message (spi_msg_data, APP_SPI_NEW_BEACON_MSG, NULL); //ask about pair status
-                beacon_pair_info_t *new_beacon;
-                if (byte_read)
+                scan_button_state(&state_of_button);//scan, clear flag and process button
+                
+                if (there_are_trouble && !(in_pair_mode))
                 {
+                    DEBUG_INFO ("ALARM NOW \r\n");
+                    check_trouble_MAC(trouble_table_info_of_node);
+                }
+                if (ble_status->in_pair_mode && !(in_pair_mode))
+                {
+                    DEBUG_INFO ("PAIR MODE \r\n");
+                    // wait until it end
+    //                static uint32_t last_timeout = 0;
+                    /*
+                        gui min id yeu cau cap uncast addr
+                        doi co uncast addr gui lai cho NRF
+                        sau khi nhan dc ping ko con trong pair mode hoac time out thi thoats khoi che do pair 
+                    */
+                    pair_timeout = 3000;
+                    request_spi_message (spi_msg_data, APP_SPI_NEW_BEACON_MSG, NULL); //ask about pair info
+                    beacon_pair_info_t *new_beacon;
                     new_beacon = (beacon_pair_info_t *) spi_msg_data;
+                    //send data through min
+                    min_msg_t min_beacon_data_msg;
+                    min_beacon_data_msg.id = MIN_ID_NEW_SENSOR_PAIRING;
+                    min_beacon_data_msg.payload = new_beacon;
+                    min_beacon_data_msg.len = sizeof (beacon_pair_info_t);
+                    send_min_data (&min_beacon_data_msg);
+                    lcd_display_content ("IN PAIR MODE");
                     
-                    if (new_beacon->pair_success)
+                    in_pair_mode = true;
+                    //hien thi them thoi gian trong pair mode
+                }
+                if (ble_status->alarm_value.Value)
+                {
+                    DEBUG_INFO ("ALARM VALUE: %d\r\n",ble_status->alarm_value.Value);
+                    there_are_trouble = true;
+                }
+                if ((!in_pair_mode) && (!there_are_trouble))
+                {
+                    uint8_t byte_read = request_spi_message (spi_msg_data, APP_SPI_PING_MSG, NULL);
+                    
+                    // check spi data
+                    ble_status = (app_beacon_ping_msg_t*)spi_msg_data;
+                    // process and send data to esp (for ping msg)
+                    if (byte_read)
                     {
-                        lcd_display_content ("PAIR SUCCESS");
-                        char counter[32];
-                        sprintf(counter, "%02x: %02x: %02x: %02x: %02x: %02x", new_beacon->device_mac[0],
-                                                                               new_beacon->device_mac[1],
-                                                                               new_beacon->device_mac[2],
-                                                                               new_beacon->device_mac[3],
-                                                                               new_beacon->device_mac[4],
-                                                                               new_beacon->device_mac[5]);
-                        lcd_display_content_at_pos (counter,38,39);
-#warning " hien thi them loai cam bien"
-                        build_device_type_string(new_beacon->device_type, counter);
-                        sprintf(counter, "%s", counter);
-                        u8g2_DrawUTF8(&m_u8g2, 25, 54, counter);
-                        u8g2_SetFont(&m_u8g2, u8g2_font_6x13_tf);
-                        u8g2_SendBuffer(&m_u8g2);
+                        min_msg_t min_beacon_ping_msg;
+                        min_beacon_ping_msg.id = MIN_ID_SEND_AND_RECEIVE_BEACON_MSG;
+                        min_beacon_ping_msg.payload = ble_status;
+                        min_beacon_ping_msg.len = byte_read;
+                        send_min_data (&min_beacon_ping_msg);
+                    }
+                    lcd_display_status ();// hien thi trang thai khi khong o trang thai pair mode
+                }
+                if ((!ble_status->in_pair_mode) && in_pair_mode && pair_timeout)
+                {
+                    pair_timeout--;
+                    // Check if IN PAIR MODE NOW ASK FOR NEW BEACON INFO about pair status
+                    
+                    //can gui unicast addr trc khi hoi ve tinh trang pair
+                    uint8_t byte_read = request_spi_message (spi_msg_data, APP_SPI_NEW_BEACON_MSG, NULL); //ask about pair status
+                    beacon_pair_info_t *new_beacon;
+                    if (byte_read)
+                    {
+                        new_beacon = (beacon_pair_info_t *) spi_msg_data;
                         
+                        if (new_beacon->pair_success)
+                        {
+                            lcd_display_content ("PAIR SUCCESS");
+                            char counter[32];
+                            sprintf(counter, "%02x: %02x: %02x: %02x: %02x: %02x", new_beacon->device_mac[0],
+                                                                                   new_beacon->device_mac[1],
+                                                                                   new_beacon->device_mac[2],
+                                                                                   new_beacon->device_mac[3],
+                                                                                   new_beacon->device_mac[4],
+                                                                                   new_beacon->device_mac[5]);
+                            lcd_display_content_at_pos (counter,38,39);
+    #warning " hien thi them loai cam bien"
+                            build_device_type_string(new_beacon->device_type, counter);
+                            sprintf(counter, "%s", counter);
+                            u8g2_DrawUTF8(&m_u8g2, 25, 54, counter);
+                            u8g2_SetFont(&m_u8g2, u8g2_font_6x13_tf);
+                            u8g2_SendBuffer(&m_u8g2);
+                            
+                        }
+                        else if (new_beacon->pair_success == false && (pair_timeout == 0))
+                        {
+                            lcd_display_content ("PAIR TIMEOUT");
+                            delay_1ms (3000);
+                            lcd_display_status ();
+                            //time out 3s roi hien thi man hinh chinh
+                        }
+                        in_pair_mode = false; //clear pair mode flag
                     }
-                    else if (new_beacon->pair_success == false && (pair_timeout == 0))
-                    {
-                        lcd_display_content ("PAIR TIMEOUT");
-                        delay_1ms (3000);
-                        lcd_display_status ();
-                        //time out 3s roi hien thi man hinh chinh
-                    }
-                    in_pair_mode = false; //clear pair mode flag
                 }
             }
         }
         // circle process ping msg finish
         //check beacon data
-        if ((now - last_time_ask_beacon_data) > 2000)
+        if (0)//(now - last_time_ask_beacon_data) > 2555)
         {
+//            lcd_display_content ("lcd test");
             DEBUG_INFO ("BEACON DATA \r\n");
             last_time_ask_beacon_data = now;
             uint8_t spi_read_byte = request_spi_message (spi_msg_data, APP_SPI_BEACON_MSG, NULL); //ask about pair status
             if (spi_read_byte)
             {
-                app_beacon_data_t * beacon_data;
+                app_beacon_data_t * beacon_data = NULL;
                 beacon_data = (app_beacon_data_t*) spi_msg_data;
                 min_msg_t min_beacon_data_msg;
                 min_beacon_data_msg.id = MIN_ID_SEND_AND_RECEIVE_HEARTBEAT_MSG;
@@ -1455,7 +1519,7 @@ int main(void)
 
 static void delay_ns(uint32_t ns)
 {
-	for (uint32_t i = 0; i < ns * 2; i++)
+	for (uint32_t i = 0; i < ns*2; i++)
 	{
 		__NOP();
 		__NOP();
@@ -1658,33 +1722,32 @@ uint8_t u8g2_gpio_8080_update_and_delay(U8X8_UNUSED u8x8_t *u8x8, U8X8_UNUSED ui
 
 	case U8X8_MSG_GPIO_MENU_SELECT:
 	{
-		u8x8_SetGPIOResult(u8x8, /* get menu select pin state */ 0);
+		u8x8_SetGPIOResult(u8x8, /* get menu select pin state */0);
 	}
 	break;
 
 	case U8X8_MSG_GPIO_MENU_NEXT:
 	{
-		u8x8_SetGPIOResult(u8x8, /* get menu next pin state */ 0);
+		u8x8_SetGPIOResult(u8x8, /* get menu next pin state */0);
 	}
 	break;
 
 	case U8X8_MSG_GPIO_MENU_PREV:
 	{
-		u8x8_SetGPIOResult(u8x8, /* get menu prev pin state */ 0);
+		u8x8_SetGPIOResult(u8x8, /* get menu prev pin state */0);
 	}
 	break;
 
 	case U8X8_MSG_GPIO_MENU_HOME:
 	{
-		u8x8_SetGPIOResult(u8x8, /* get menu home pin state */ 0);
+		u8x8_SetGPIOResult(u8x8, /* get menu home pin state */0);
 	}
 	break;
 
 	default:
-		//DEBUG_ERROR("Unhandled case %d\r\n", msg);
-		return 0; // A message was received which is not implemented, return 0 to indicate an error
+        DEBUG_ERROR("Unhandled case %d\r\n", msg);
+        return 0; // A message was received which is not implemented, return 0 to indicate an error
 	}
-
 	return 1; // command processed successfully.
 }
 

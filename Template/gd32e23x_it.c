@@ -37,6 +37,7 @@ OF SUCH DAMAGE.
 #include "main.h"
 #include "systick.h"
 #include "gd32e230c_eval.h"
+#include "board_hw.h"
 
 extern uint8_t spi0_send_array[];
 extern uint8_t spi0_receive_array[];
@@ -96,7 +97,7 @@ void SysTick_Handler(void)
 {
     //led_spark();
     sys_counter++;
-    delay_decrement();
+    delay_decrement();     
 }
 
 
