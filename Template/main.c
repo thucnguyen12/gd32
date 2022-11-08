@@ -1162,48 +1162,37 @@ int main(void)
 	m_min_context.rx_frame_payload_buf = min_rx_buffer;
 	min_init_context(&m_min_context);
     
-    /* initilize the LEDs, USART and key */
-//    gd_eval_led_init(LED1); 
-//    gd_eval_led_init(LED2); 
-//    gd_eval_led_init(LED3);
-//    gd_eval_com_init(EVAL_COM);
-//    gd_eval_key_init(KEY_WAKEUP, KEY_MODE_GPIO);
-    
-//    com_usart_init();
-//    usart_enable(USART1);
-//    //spi configuration
-//    nvic_irq_enable (SPI0_IRQn, 1);
-//    spi_config ();
-//    spi_enable (SPI0);
+    spi_config ();
+    spi_enable (SPI0);
     
 //*********  CONFIG BACKUP VALUE AND RTC*******    
     /* enable access to RTC registers in backup domain */
-//    rcu_periph_clock_enable(RCU_PMU);
-//    pmu_backup_write_enable();
-//  
-//    rtc_pre_config();
-//    rtc_tamper_disable(RTC_TAMPER0);
-//  
-//    /* check if RTC has aready been configured */
-//    if (BKP_VALUE != RTC_BKP0){    
-//        rtc_setup (NULL); 
-//    }else{
-//        /* detect the reset source */
-//        if (RESET != rcu_flag_get(RCU_FLAG_PORRST)){
-//            DEBUG_INFO("power on reset occurred....\n\r");
-//        }else if (RESET != rcu_flag_get(RCU_FLAG_EPRST)){
-//            DEBUG_INFO("external reset occurred....\n\r");
-//        }
-//        DEBUG_INFO("no need to configure RTC....\n\r");
-//               
-//        //rtc_show_time(); // WE NEED DISPLAY TIME ON LCD ONCE A SECOND
-//    }
-//    // app debug
-//    app_debug_init(sys_get_ms,NULL);
-//    app_debug_register_callback_print(rtt_tx);
+    rcu_periph_clock_enable(RCU_PMU);
+    pmu_backup_write_enable();
+  
+    rtc_pre_config();
+    rtc_tamper_disable(RTC_TAMPER0);
+  
+    /* check if RTC has aready been configured */
+    if (BKP_VALUE != RTC_BKP0){    
+        rtc_setup (NULL); 
+    }else{
+        /* detect the reset source */
+        if (RESET != rcu_flag_get(RCU_FLAG_PORRST)){
+            DEBUG_INFO("power on reset occurred....\n\r");
+        }else if (RESET != rcu_flag_get(RCU_FLAG_EPRST)){
+            DEBUG_INFO("external reset occurred....\n\r");
+        }
+        DEBUG_INFO("no need to configure RTC....\n\r");
+               
+        //rtc_show_time(); // WE NEED DISPLAY TIME ON LCD ONCE A SECOND
+    }
+    // app debug
+    app_debug_init(sys_get_ms,NULL);
+    app_debug_register_callback_print(rtt_tx);
     DEBUG_INFO ("APP DEBUG OK\r\n");
-   // while(RESET == usart_flag_get(USART0, USART_FLAG_TC));
-    //usart_interrupt_enable(USART0, USART_INT_RBNE);
+    while(RESET == usart_flag_get(USART0, USART_FLAG_TC));
+    usart_interrupt_enable(USART0, USART_INT_RBNE);
 	//usart_interrupt_enable(USART0, USART_INT_TBE);
     //uint8_t databuff1[256];
     while (0)
@@ -1708,7 +1697,7 @@ uint8_t u8g2_gpio_8080_update_and_delay(U8X8_UNUSED u8x8_t *u8x8, U8X8_UNUSED ui
 		}
 		else
 		{
-			gpio_bit_set(GPIO_LCD_RW_PORT, GPIO_LCD_RW_PIN);
+			gpio_bit_reset(GPIO_LCD_RW_PORT, GPIO_LCD_RW_PIN);
 		}
 	}
 	break;
