@@ -304,9 +304,9 @@ bool esp32_started_s = false;
 
 lwrb_t uart_rb;
 uint8_t uart_buffer[512];
-uint8_t min_txbuffer[1024];
+//uint8_t min_txbuffer[1024];
 
-uint8_t min_rx_buffer[1024];
+uint8_t min_rx_buffer[256];
 min_context_t m_min_context;
 min_frame_cfg_t m_min_setting;
 
@@ -386,6 +386,7 @@ void lcd_display_trouble (trouble_info_of_note_t* trouble_info_table, uint8_t tr
 
 //genaeral var
 bool in_pair_mode = false;
+static bool got_mac = false;
 //
 /*!
     \brief      configure the SPI peripheral
@@ -484,7 +485,7 @@ void min_rx_callback(void *min_context, min_msg_t *frame)
     case MIN_ID_PING_ESP_ALIVE:
         /* code */
         check_ping_esp_s = true;
-        min_msg_t  min_ping_response;
+        //min_msg_t  min_ping_response;
         DEBUG_INFO ("PING OK\r\n");
         //DEBUG_INFO ("PAY LOAD:%s", frame->payload);        
         break;
@@ -519,6 +520,8 @@ void min_rx_callback(void *min_context, min_msg_t *frame)
         spi_retry_cnt = 3;
 //        sensor_data_response = (node_sensor_data_t*) frame->payload;
         request_spi_message (spi_data_buffer, APP_SPI_NODE_PAIR_INFO, &unicast_addr);
+        
+        
         
 //        if (!strstr ((char*)spi_data_buffer, "ok"))
 //        {
@@ -837,7 +840,7 @@ uint32_t rtt_tx(const void *buffer, uint32_t size)
     return SEGGER_RTT_Write(0, buffer, size);
 }
 
-static bool got_mac = false;
+
 
 void handle_spi_data (uint8_t msg_id, nrf52_format_packet_t* nrf52_packet_to_process)
 {
@@ -863,7 +866,7 @@ void handle_spi_data (uint8_t msg_id, nrf52_format_packet_t* nrf52_packet_to_pro
         break;
         
         case APP_SPI_NEW_BEACON_MSG:
-            DEBUG_INFO ("NEW BEACON MSG\r\n");
+            //DEBUG_INFO ("NEW BEACON MSG\r\n");
             got_mac = false;
             new_beacon = (beacon_pair_info_t*)nrf52_packet_to_process->format.payload;
             DEBUG_INFO ("GOT PAIR MAC:  %02x: %02x: %02x: %02x: %02x: %02x", new_beacon->device_mac[0],
@@ -872,7 +875,11 @@ void handle_spi_data (uint8_t msg_id, nrf52_format_packet_t* nrf52_packet_to_pro
                                                                                    new_beacon->device_mac[3],
                                                                                    new_beacon->device_mac[4],
                                                                                    new_beacon->device_mac[5]);
-            DEBUG_INFO ("THERE ARE GOT MAC: %d\r\n", new_beacon->got_mac);
+            if (new_beacon->got_mac)
+            {
+                DEBUG_INFO ("THERE ARE GOT MAC\r\n");
+            }
+            
             if (new_beacon->got_mac)
             {
                 DEBUG_WARN ("NOW GOT VALID MAC\r\n");
@@ -910,16 +917,17 @@ void handle_spi_data (uint8_t msg_id, nrf52_format_packet_t* nrf52_packet_to_pro
         break;
         
         default:
-            DEBUG_INFO ("TRUYEN SAI MSG ID, COD LAI DI \r\n");
+            DEBUG_INFO ("TRUYEN SAI MSG ID, CODE LAI DI: %d \r\n",msg_id);
         break;
                 
     }
 }
 
-
+nrf52_format_packet_t nrf52_recieve_packet;
+nrf52_format_packet_t nrf52_local_packet;
 uint8_t request_spi_message(void* p_out, uint8_t msg_id, void* input)
 {
-    nrf52_format_packet_t nrf52_local_packet;
+
     nrf52_local_packet.format.token = APP_GD32_SPI_TOKEN;
     nrf52_local_packet.format.msg_id = msg_id;
     nrf52_local_packet.format.msg_length = 0;
@@ -927,32 +935,33 @@ uint8_t request_spi_message(void* p_out, uint8_t msg_id, void* input)
     // need to send msg config
     if ((msg_id == APP_SPI_KEY_CONFIG) && (input != NULL))
     {
-        input = (ble_config_t *) input;
+        // input = (ble_config_t *) input;
         memcpy(&nrf52_local_packet.format.payload, input, sizeof(ble_config_t));
         nrf52_local_packet.format.msg_length = sizeof(ble_config_t);
     }
     else if ((msg_id == APP_SPI_SYN_TIME) && (input != NULL))    
     {
-        input = (uint32_t *) input;
+        // input = (uint32_t *) input;
         memcpy(&nrf52_local_packet.format.payload, input, sizeof(uint32_t));
         nrf52_local_packet.format.msg_length = sizeof(uint32_t);
     }
     else if (msg_id == APP_SPI_NODE_PAIR_INFO)
     {
-        input = (uint16_t *) input;
+        // input = (uint16_t *) input;
         memcpy(&nrf52_local_packet.format.payload, input, sizeof(uint16_t));
         nrf52_local_packet.format.msg_length = sizeof(uint16_t);
     }
-    nrf52_format_packet_t nrf52_recieve_packet;
+
     nrf52_recieve_packet.format.token = 0;
     nrf52_recieve_packet.format.msg_id = 0;
     nrf52_recieve_packet.format.msg_length = 0;
-    memset(&nrf52_recieve_packet.format.payload, 0, sizeof(nrf52_recieve_packet.format.payload));
+    memset(&nrf52_recieve_packet, 0, sizeof(nrf52_format_packet_t));
     /*Write*/
     /*nrF52 CS Pin*/
-    gpio_bit_reset(GPIO_NRF_CS_PORT, GPIO_NRF_CS_PIN);
     DEBUG_INFO ("send spi msg: %d\r\n", msg_id);
-    for(uint16_t i = 0; i < sizeof(nrf52_format_packet_t); i++)
+    gpio_bit_reset(GPIO_NRF_CS_PORT, GPIO_NRF_CS_PIN);
+
+    for (uint16_t i = 0; i < sizeof(nrf52_format_packet_t); i++)
     {
         uint32_t Timeout = 1000;
         //SPI_transmit_self_recieve (&(nrf52_local_packet.value[i]));  // if there are hardware UNCOMMENT THIS LINE 
@@ -961,13 +970,15 @@ uint8_t request_spi_message(void* p_out, uint8_t msg_id, void* input)
 //            fwdgt_counter_reload();
             Timeout--;
         }
-            spi_i2s_data_transmit(SPI0, nrf52_local_packet.value[i]);
+        
+        Timeout = 1000;
+        spi_i2s_data_transmit(SPI0, nrf52_local_packet.value[i]);
         while(spi_i2s_flag_get(SPI0, SPI_FLAG_RBNE) == RESET && Timeout) {        
             if ((Timeout % 100) == 0)
 //            fwdgt_counter_reload();
             Timeout--;
         }
-            nrf52_recieve_packet.value[i] = spi_i2s_data_receive(SPI0);
+        nrf52_recieve_packet.value[i] = spi_i2s_data_receive(SPI0);
     }
     // wait until tranfer data completely
     while(SET == spi_i2s_flag_get(SPI0, SPI_STAT_TRANS)) {
@@ -989,7 +1000,7 @@ uint8_t request_spi_message(void* p_out, uint8_t msg_id, void* input)
     uint8_t ping_msg_length = 0;
     if((nrf52_recieve_packet.format.token == APP_GD32_SPI_TOKEN) /*&& (nrf52_recieve_packet.format.msg_id == msg_id)*/)
     {
-        DEBUG_INFO("Found msg response\r\n");
+//        DEBUG_INFO("Found msg response\r\n");
         ping_msg_length = nrf52_recieve_packet.format.msg_length;
         if (nrf52_recieve_packet.format.msg_id == APP_SPI_PING_MSG)
         {
@@ -997,22 +1008,23 @@ uint8_t request_spi_message(void* p_out, uint8_t msg_id, void* input)
             app_beacon_ping_msg_t *p_ping_msg = (app_beacon_ping_msg_t*)&nrf52_recieve_packet.format.payload;
             /*<Only for Debug>*/
         
-//            DEBUG_INFO("Alarm value:%08x\r\nTotal Sensor count:%u\r\nPair mode:%d\r\nGateway Mac:", p_ping_msg->alarm_value.Value, p_ping_msg->sensor_count, p_ping_msg->in_pair_mode);
-//            for(uint8_t  i = 0; i < 6; i++)
-//            {
-//                DEBUG_RAW("%02x-", p_ping_msg->gateway_mac[i]);
-//            }
-//            DEBUG_INFO("\r\nAppKey: ");
-//            for(uint8_t  i = 0; i < 16; i++)
-//            {
-//                DEBUG_RAW("%02x-", p_ping_msg->mesh_key.appkey[i]);
-//            }
-//            DEBUG_INFO("\r\nnetKey: ");
-//            for(uint8_t  i = 0; i < 16; i++)
-//            {
-//                DEBUG_RAW("%02x-", p_ping_msg->mesh_key.netkey[i]);
-//            }
-//            DEBUG_RAW("\r\n");
+            DEBUG_INFO("Alarm value:%08x\r\nTotal Sensor count:%u\r\nPair mode:%d\r\nGateway Mac:", p_ping_msg->alarm_value.Value, p_ping_msg->sensor_count, p_ping_msg->in_pair_mode);
+            for(uint8_t  i = 0; i < 6; i++)
+            {
+                DEBUG_RAW("%02x-", p_ping_msg->gateway_mac[i]);
+            }
+            DEBUG_RAW ("\r\n");
+            DEBUG_INFO("\r\nAppKey: ");
+            for(uint8_t  i = 0; i < 16; i++)
+            {
+                DEBUG_RAW("%02x-", p_ping_msg->mesh_key.appkey[i]);
+            }
+            DEBUG_INFO("\r\nnetKey: ");
+            for(uint8_t  i = 0; i < 16; i++)
+            {
+                DEBUG_RAW("%02x-", p_ping_msg->mesh_key.netkey[i]);
+            }
+            DEBUG_RAW("\r\n");
         }
         else if (nrf52_recieve_packet.format.msg_id == APP_SPI_BEACON_MSG)
         {
@@ -1041,10 +1053,13 @@ uint8_t request_spi_message(void* p_out, uint8_t msg_id, void* input)
             {
               DEBUG_INFO ("RESPONE OK\r\n");
             }
+            got_mac = true;
+            in_pair_mode = false;
+            lcd_display_status ();
         }
         else if (nrf52_recieve_packet.format.msg_id == APP_SPI_NEW_BEACON_MSG)
         {
-            DEBUG_WARN (" RECEIVE 0X05 MSG\r\n");
+//            DEBUG_WARN (" RECEIVE 0X05 MSG\r\n");
             handle_spi_data(nrf52_recieve_packet.format.msg_id, &nrf52_recieve_packet);
         }
         else
@@ -1231,6 +1246,7 @@ void scan_button_state(button_state_str* state)
     }
 }
 
+uint16_t uart_data_leng;
 
 int main(void)
 {
@@ -1239,7 +1255,7 @@ int main(void)
     irc40k_config();
     board_hw_initialize();
     
-    lwrb_init(&uart_rb, uart_buffer, sizeof(uart_buffer));
+    
     m_min_setting.get_ms = sys_get_ms;
     m_min_setting.last_rx_time = 0x00;
 	m_min_setting.rx_callback = min_rx_callback;
@@ -1250,6 +1266,8 @@ int main(void)
     m_min_context.callback = &m_min_setting;
 	m_min_context.rx_frame_payload_buf = min_rx_buffer;
 	min_init_context(&m_min_context);
+    
+    lwrb_init(&uart_rb, uart_buffer, sizeof(uart_buffer));
     
     spi_config ();
     spi_enable (SPI0);
@@ -1410,30 +1428,33 @@ int main(void)
             last_time = now;
         }
         
-        if (((now - last_time) > 6000) && (!check_ping_esp_s) && esp32_started_s)
-        {
-            // reset esp32
-          last_time = now;
-            DEBUG_INFO ("TIME OUT RESET ESP32\r\n");
-//            gpio_bit_reset(GPIO_ESP_EN_PORT, GPIO_ESP_EN_PIN);
-//            
-//            delay_1ms (1000);
-//            
-//            gpio_bit_set(GPIO_ESP_EN_PORT, GPIO_ESP_EN_PIN);
-            continue;
-            //restart loop
-        }
+//        if (((now - last_time) > 6000) && (!check_ping_esp_s) && esp32_started_s)
+//        {
+//            // reset esp32
+//          last_time = now;
+//            DEBUG_INFO ("TIME OUT RESET ESP32\r\n");
+////            gpio_bit_reset(GPIO_ESP_EN_PORT, GPIO_ESP_EN_PIN);
+////            
+////            delay_1ms (1000);
+////            
+////            gpio_bit_set(GPIO_ESP_EN_PORT, GPIO_ESP_EN_PIN);
+//            continue;
+//            //restart loop
+//        }
         app_beacon_ping_msg_t* ble_status = NULL;
-#if(1)
+#if (1)
         // on circle process ping msg
-        if (((now - last_time_ping) > 1000))
+        if (((now - last_time_ping) > 2000))
         {
 //            lcd_clr_screen();
 //            lcd_display_content ("lcd test");
             last_time_ping = now;
-            uint8_t spi_read_byte = request_spi_message (spi_msg_data, APP_SPI_PING_MSG, NULL); // PING INTERVAL
+            uint8_t spi_read_byte = 0;
+            spi_read_byte = request_spi_message (spi_msg_data, APP_SPI_PING_MSG, NULL); // PING INTERVAL
+            //DEBUG_INFO ("BYTE READ : %d \r\n", spi_read_byte);
             if (spi_read_byte)
             {
+//                DEBUG_INFO ("DATA SPI \r\n");
                 ble_status = (app_beacon_ping_msg_t*)spi_msg_data;
                 min_msg_t min_beacon_data_msg;
 //                min_beacon_data_msg.id = MIN_ID_SEND_AND_RECEIVE_HEARTBEAT_MSG;
@@ -1501,7 +1522,7 @@ int main(void)
                 if (ble_status->in_pair_mode && (!in_pair_mode))
                 {
                     
-                    DEBUG_INFO ("PAIR MODE \r\n");
+                    DEBUG_ERROR ("PAIR MODE \r\n");
                     // wait until it end
     //                static uint32_t last_timeout = 0;
                     /*
@@ -1509,7 +1530,7 @@ int main(void)
                         doi co uncast addr gui lai cho NRF
                         sau khi nhan dc ping ko con trong pair mode hoac time out thi thoats khoi che do pair 
                     */
-                    
+                        got_mac = false;
                         pair_timeout = 3000; 
                         in_pair_mode = true;
                         lcd_clr_screen();
@@ -1539,17 +1560,25 @@ int main(void)
                     // Check if IN PAIR MODE NOW ASK FOR NEW BEACON INFO about pair status
                     
                     //can gui unicast addr trc khi hoi ve tinh trang pair
-                    beacon_pair_info_t *new_beacon;
-                    if (!got_mac)
+                    static beacon_pair_info_t *new_beacon;
+                    if (!got_mac && !(new_beacon->got_mac))
                     {
                         uint8_t byte_read = request_spi_message (new_beacon, APP_SPI_NEW_BEACON_MSG, NULL); //ask about pair status
                     }
                     if (pair_timeout == 0)
                     {
+                        
+                        got_mac = true;
                         in_pair_mode = false;
+                        
+                        lcd_clr_screen ();
+                        lcd_display_status ();
+                        
                     }
                 }
             }
+            
+            
         }
         // circle process ping msg finish
         //check beacon data
@@ -1588,10 +1617,17 @@ int main(void)
             }
         }
 #endif
-        uint16_t uart_data_leng = lwrb_read (&uart_rb, databuff, 128);
+        static uint32_t counter = 0;
+        uart_data_leng = lwrb_read (&uart_rb, databuff, 8);
+        //DEBUG_INFO ("READ UART BUFF NOW,  byte read: %d\r\n", uart_data_leng);
         if (uart_data_leng)
         {
-            DEBUG_INFO ("DATA UART FROM ESP32\r\n");
+            counter += uart_data_leng;
+            if (counter >= 128)
+            {
+                counter = 0;
+                DEBUG_INFO ("DATA UART FROM ESP32\r\n");
+            }
             min_rx_feed (&m_min_context, databuff, uart_data_leng);
         }
     }
@@ -1959,12 +1995,12 @@ void uart0_handler(void)
 {
     static uint8_t count = 0;
     uint8_t data = (uint8_t)usart_data_receive(USART0);
-    if(count++ >= 10)
-    {
-        count = 0;
-        DEBUG_RAW("\r\n");
-    }
-    DEBUG_RAW("0x02%x",data);
+//    if(count++ >= 10)
+//    {
+//        count = 0;
+//        DEBUG_RAW("\r\n");
+//    }
+//    DEBUG_RAW("0x02%x",data);
     lwrb_write (&uart_rb, &data, 1);
 }
 

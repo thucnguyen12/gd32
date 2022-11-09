@@ -32,6 +32,8 @@
  * Version:         v2.0.1
  */
 #include "lwrb/include/lwrb/lwrb.h"
+#include "app_debug.h"
+
 
 /* Memory set and copy functions */
 #define BUF_MEMSET                      memset
@@ -176,6 +178,8 @@ lwrb_read(LWRB_VOLATILE lwrb_t* buff, void* data, size_t btr) {
         return 0;
     }
 
+
+    
     /* Calculate maximum number of bytes available to read */
     full = lwrb_get_full(buff);
     btr = BUF_MIN(full, btr);
