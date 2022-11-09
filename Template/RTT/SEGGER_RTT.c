@@ -568,6 +568,7 @@ static unsigned _GetAvailWriteSpace(SEGGER_RTT_BUFFER_UP* pRing) {
 *  Additional information
 *    This function must not be called when J-Link might also do RTT.
 */
+
 unsigned SEGGER_RTT_ReadUpBufferNoLock(unsigned BufferIndex, void* pData, unsigned BufferSize) {
   unsigned                NumBytesRem;
   unsigned                NumBytesRead;

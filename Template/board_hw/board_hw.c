@@ -83,9 +83,9 @@ void board_hw_initialize(void)
     gpio_bit_reset(GPIO_LCD_PWM_PORT, GPIO_LCD_PWM_PIN);
     
     //GPIO 
-    gpio_mode_set (GPIO_ESP_EN_PORT, GPIO_MODE_OUTPUT, GPIO_PUPD_PULLUP ,GPIO_ESP_EN_PIN);
-    gpio_output_options_set(GPIO_ESP_EN_PORT, GPIO_OTYPE_PP, GPIO_OSPEED_50MHZ, GPIO_ESP_EN_PIN);
-    gpio_bit_set(GPIO_ESP_EN_PORT, GPIO_ESP_EN_PIN);
+//    gpio_mode_set (GPIO_ESP_EN_PORT, GPIO_MODE_OUTPUT, GPIO_PUPD_PULLUP ,GPIO_ESP_EN_PIN);
+//    gpio_output_options_set(GPIO_ESP_EN_PORT, GPIO_OTYPE_PP, GPIO_OSPEED_50MHZ, GPIO_ESP_EN_PIN);
+//    gpio_bit_set(GPIO_ESP_EN_PORT, GPIO_ESP_EN_PIN);
     
     //spi gpio
     gpio_mode_set(GPIO_SPI0_SCK_PORT, GPIO_MODE_AF, GPIO_PUPD_PULLUP, GPIO_SPI0_SCK_PIN);

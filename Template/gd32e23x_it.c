@@ -106,7 +106,7 @@ void USART0_IRQHandler(void)
 
     if (SET == usart_interrupt_flag_get(USART0, USART_INT_FLAG_RBNE))
    {
-       usart_flag_clear(USART0, USART_FLAG_RBNE);
+       //usart_flag_clear(USART0, USART_FLAG_RBNE);
        uart0_handler();
    }
 }
